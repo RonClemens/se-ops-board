@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Coordination Console</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" />
+<style>
+  html, body { margin: 0; padding: 0; background: #0D1113; }
+  * { box-sizing: border-box; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script>
+  // Minimal localStorage-backed shim matching the artifact storage API
+  // (get/set/delete/list, all async) so the component code is unchanged.
+  window.storage = {
+    async get(key) {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return null;
+      return { key, value: raw, shared: false };
+    },
+    async set(key, value) {
+      localStorage.setItem(key, value);
+      return { key, value, shared: false };
+    },
+    async delete(key) {
+      const existed = localStorage.getItem(key) !== null;
+      localStorage.removeItem(key);
+      return { key, deleted: existed, shared: false };
+    },
+    async list(prefix) {
+      const keys = Object.keys(localStorage).filter((k) => !prefix || k.startsWith(prefix));
+      return { keys, prefix, shared: false };
+    },
+  };
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const STORAGE_KEY = "setr-dashboard-v3";
+
+const DEFAULT_SESSIONS = [
+  { id: "udm-exchange", kind: "CODE", name: "udm-exchange", subtitle: "Claude Code session", repoSlug: "RonClemens/udm-exchange", status: "active", notes: "" },
+  { id: "workbench-s2", kind: "CODE", name: "Workbench S2", subtitle: "Claude Code session", repoSlug: "RonClemens/MK--710-SSR-SysEng-Story", status: "active", notes: "" },
+  { id: "cdrl-subway-s1", kind: "CODE", name: "S1: CDRL Subway Path", subtitle: "Claude Code session", repoSlug: "RonClemens/MK--710-SSR-SysEng-Story", status: "idle", notes: "" },
+];
+
+const DEFAULT_THREADS = [
+  { id: "s6-udm-cdrl-workflow", name: "S6: UDM - CDRL and Workflow Interfacing", lastActive: "2h", archived: false, status: "active", feedsInto: "" },
+  { id: "fmeca-dev-approach", name: "FMECA Dev Approach", lastActive: "3h", archived: false, status: "active", feedsInto: "" },
+  { id: "archive-s5-udm-design", name: "ARCHIVE: S5 UDM Design", lastActive: "1d", archived: true, status: "idle", feedsInto: "" },
+  { id: "archive-s4-se-udm-design", name: "ARCHIVE: S4 SE UDM Design", lastActive: "Aug 6", archived: true, status: "idle", feedsInto: "" },
+  { id: "archive-udm-design-s3", name: "ARCHIVE: UDM Design S3", lastActive: "Aug 6", archived: true, status: "idle", feedsInto: "" },
+  { id: "archive-systems-engineering-approach", name: "ARCHIVE: Systems engineering approach…", lastActive: "Jul 29", archived: true, status: "idle", feedsInto: "" },
+  { id: "archive-udm-effort-progress", name: "ARCHIVE: UDM effort progress and next…", lastActive: "Jul 29", archived: true, status: "idle", feedsInto: "" },
+  { id: "archive-udm-design-s2", name: "ARCHIVE: UDM Design S2", lastActive: "—", archived: true, status: "idle", feedsInto: "" },
+];
+
+const STATUS_META = {
+  active: { label: "Active", color: "#D9A441", glow: true },
+  blocked: { label: "Blocked", color: "#C1604A", glow: false },
+  idle: { label: "Idle", color: "#6B7679", glow: false },
+  synced: { label: "Synced", color: "#5FAE7B", glow: false },
+};
+
+function timeAgo(input) {
+  if (!input) return "—";
+  const ts = typeof input === "number" ? input : Date.parse(input);
+  if (Number.isNaN(ts)) return "—";
+  const diff = Date.now() - ts;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function genId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function Led({ color, glow, size = 8 }) {
+  return React.createElement("span", {
+    style: { width: size, height: size, borderRadius: "50%", background: color, boxShadow: glow ? `0 0 8px ${color}` : "none", display: "inline-block", flexShrink: 0 },
+  });
+}
+
+function Trace({ color }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+      <span style={{ width: 5, height: 5, borderRadius: "50%", background: color, flexShrink: 0 }} />
+      <span style={{ flex: 1, height: 1, minWidth: 12, background: "repeating-linear-gradient(90deg, #37424799 0, #37424799 4px, transparent 4px, transparent 8px)" }} />
+      <span style={{ width: 5, height: 5, borderRadius: "50%", background: color, flexShrink: 0 }} />
+    </div>
+  );
+}
+
+function StatusPicker({ value, onChange, compact = false }) {
+  const [open, setOpen] = useState(false);
+  const meta = STATUS_META[value];
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function onDocClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  return (
+    <div style={{ position: "relative", flexShrink: 0 }} ref={ref}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        style={{ display: "flex", alignItems: "center", gap: 6, background: "#1B2226", border: "1px solid #2E3A3F", borderRadius: 999, padding: compact ? "3px 8px 3px 7px" : "4px 10px 4px 8px", color: "#E7ECEE", fontFamily: "'IBM Plex Mono', monospace", fontSize: compact ? 10 : 11, letterSpacing: "0.04em", cursor: "pointer", whiteSpace: "nowrap" }}
+      >
+        <Led color={meta.color} glow={meta.glow} size={compact ? 6 : 8} />
+        {meta.label.toUpperCase()}
+        <span style={{ color: "#6B7679", marginLeft: 1 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 10, background: "#151B1E", border: "1px solid #2E3A3F", borderRadius: 8, overflow: "hidden", minWidth: 130, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+          {Object.entries(STATUS_META).map(([key, m]) => (
+            <button key={key} onClick={(e) => { e.stopPropagation(); onChange(key); setOpen(false); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 10px", background: key === value ? "#1F2A2E" : "transparent", border: "none", color: "#E7ECEE", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, cursor: "pointer", textAlign: "left" }}>
+              <Led color={m.color} glow={m.glow} />
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CardShell({ children }) {
+  return <div style={{ background: "#131A1D", border: "1px solid #232C30", borderRadius: 10, padding: "16px 16px 14px", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>{children}</div>;
+}
+
+function useRepoStatus(slug) {
+  const [state, setState] = useState({ loading: true, error: null, data: null });
+
+  const fetchStatus = useCallback(async () => {
+    if (!slug || !slug.includes("/")) { setState({ loading: false, error: null, data: null }); return; }
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const res = await fetch(`https://api.github.com/repos/${slug}/commits?per_page=1`);
+      if (!res.ok) throw new Error(res.status === 404 ? "repo not found or private" : `GitHub responded ${res.status}`);
+      const json = await res.json();
+      const c = json[0];
+      if (!c) throw new Error("no commits found");
+      setState({ loading: false, error: null, data: { message: c.commit.message.split("\n")[0], author: c.commit.author?.name || "unknown", date: c.commit.author?.date, sha: c.sha.slice(0, 7), url: c.html_url } });
+    } catch (e) {
+      setState({ loading: false, error: e.message || "fetch failed", data: null });
+    }
+  }, [slug]);
+
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
+  return { ...state, refresh: fetchStatus };
+}
+
+function RepoStatus({ slug }) {
+  const { loading, error, data, refresh } = useRepoStatus(slug);
+  if (!slug) return null;
+  return (
+    <div style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <a href={`https://github.com/${slug}`} target="_blank" rel="noopener noreferrer" style={{ color: "#8FBFDA", textDecoration: "none", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>{slug} ↗</a>
+        <button onClick={(e) => { e.stopPropagation(); refresh(); }} title="Refresh" style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontSize: 12, padding: 2 }}>⟳</button>
+      </div>
+      {loading && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468" }}>checking…</div>}
+      {!loading && error && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#C1604A" }}>{error} — open repo directly to check ↑</div>}
+      {!loading && data && (
+        <a href={data.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: "inherit" }}>
+          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#B7C1C4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={data.message}>{data.message}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468" }}>{data.sha} · {data.author} · {timeAgo(data.date)}</div>
+        </a>
+      )}
+    </div>
+  );
+}
+
+function SessionCard({ session, onUpdate, onRemove }) {
+  const [notes, setNotes] = useState(session.notes);
+  const [repoSlug, setRepoSlug] = useState(session.repoSlug || "");
+  const notesDebounce = useRef(null);
+  const repoDebounce = useRef(null);
+
+  useEffect(() => setNotes(session.notes), [session.notes]);
+  useEffect(() => setRepoSlug(session.repoSlug || ""), [session.repoSlug]);
+
+  const handleNotesChange = (val) => {
+    setNotes(val);
+    if (notesDebounce.current) clearTimeout(notesDebounce.current);
+    notesDebounce.current = setTimeout(() => onUpdate(session.id, { notes: val, updatedAt: Date.now() }), 500);
+  };
+  const handleRepoChange = (val) => {
+    setRepoSlug(val);
+    if (repoDebounce.current) clearTimeout(repoDebounce.current);
+    repoDebounce.current = setTimeout(() => onUpdate(session.id, { repoSlug: val.trim() }), 600);
+  };
+
+  const meta = STATUS_META[session.status];
+
+  return (
+    <CardShell>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", color: "#6FA8C4", marginBottom: 4 }}>{session.kind}</div>
+          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, color: "#E7ECEE", lineHeight: 1.25 }}>{session.name}</div>
+          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C", marginTop: 2 }}>{session.subtitle}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <StatusPicker value={session.status} onChange={(status) => onUpdate(session.id, { status, updatedAt: Date.now() })} />
+          {onRemove && <button onClick={() => onRemove(session.id)} title="Remove session" style={{ background: "none", border: "none", color: "#4A5458", cursor: "pointer", fontSize: 14, padding: 2 }}>×</button>}
+        </div>
+      </div>
+      <div>
+        <Trace color={meta.color} />
+        <div style={{ marginTop: 8 }}>
+          <input value={repoSlug} onChange={(e) => handleRepoChange(e.target.value)} placeholder="owner/repo"
+            style={{ width: "100%", boxSizing: "border-box", background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "6px 9px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, outline: "none", marginBottom: 6 }}
+            onFocus={(e) => (e.target.style.borderColor = "#6FA8C4")} onBlur={(e) => (e.target.style.borderColor = "#232C30")} />
+          <RepoStatus slug={repoSlug.trim()} />
+        </div>
+      </div>
+      <textarea value={notes} onChange={(e) => handleNotesChange(e.target.value)} placeholder="Left off here / next step…" rows={2}
+        style={{ resize: "vertical", background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "8px 10px", color: "#DCE3E5", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, lineHeight: 1.4, outline: "none" }}
+        onFocus={(e) => (e.target.style.borderColor = "#6FA8C4")} onBlur={(e) => (e.target.style.borderColor = "#232C30")} />
+    </CardShell>
+  );
+}
+
+function AddSessionCard({ onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [repoSlug, setRepoSlug] = useState("");
+
+  const submit = () => {
+    if (!name.trim()) return;
+    onAdd({ id: genId("session"), kind: "CODE", name: name.trim(), subtitle: "Claude Code session", repoSlug: repoSlug.trim(), status: "active", notes: "" });
+    setName(""); setRepoSlug(""); setOpen(false);
+  };
+
+  if (!open) {
+    return <button onClick={() => setOpen(true)} style={{ background: "#0F1416", border: "1px dashed #2E3A3F", borderRadius: 10, color: "#7C878C", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, padding: "16px", cursor: "pointer", minHeight: 80 }}>+ Add coding session</button>;
+  }
+
+  return (
+    <CardShell>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", color: "#6FA8C4" }}>NEW SESSION</div>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Session name" autoFocus
+        style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "8px 10px", color: "#E7ECEE", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, outline: "none" }} />
+      <input value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} placeholder="owner/repo (optional)"
+        style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "8px 10px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, outline: "none" }} />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={submit} style={{ flex: 1, background: "#1B2226", border: "1px solid #2E3A3F", borderRadius: 6, color: "#E7ECEE", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, padding: "8px", cursor: "pointer" }}>Add</button>
+        <button onClick={() => setOpen(false)} style={{ flex: 1, background: "none", border: "1px solid #232C30", borderRadius: 6, color: "#7C878C", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, padding: "8px", cursor: "pointer" }}>Cancel</button>
+      </div>
+    </CardShell>
+  );
+}
+
+function ThreadRow({ thread, onUpdate, onRemove }) {
+  const [feeds, setFeeds] = useState(thread.feedsInto);
+  const debounceRef = useRef(null);
+
+  useEffect(() => setFeeds(thread.feedsInto), [thread.feedsInto]);
+
+  const handleFeedsChange = (val) => {
+    setFeeds(val);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onUpdate(thread.id, { feedsInto: val }), 500);
+  };
+
+  const meta = STATUS_META[thread.status];
+
+  return (
+    <div style={{ borderTop: "1px solid #1E2629", padding: "10px 0", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+          <Led color={meta.color} glow={meta.glow} size={6} />
+          <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: thread.archived ? "#7C878C" : "#DCE3E5", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={thread.name}>{thread.name}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468" }}>{thread.lastActive}</span>
+          <StatusPicker compact value={thread.status} onChange={(status) => onUpdate(thread.id, { status })} />
+          <button onClick={() => onRemove(thread.id)} title="Remove thread" style={{ background: "none", border: "none", color: "#4A5458", cursor: "pointer", fontSize: 13, padding: "0 2px" }}>×</button>
+        </div>
+      </div>
+      <input value={feeds} onChange={(e) => handleFeedsChange(e.target.value)} placeholder="Feeding into… (e.g. Workbench S2)"
+        style={{ marginLeft: 13, background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "6px 9px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, outline: "none" }}
+        onFocus={(e) => (e.target.style.borderColor = "#6FA8C4")} onBlur={(e) => (e.target.style.borderColor = "#232C30")} />
+    </div>
+  );
+}
+
+function AddThreadRow({ onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+
+  const submit = () => {
+    if (!name.trim()) return;
+    onAdd({ id: genId("thread"), name: name.trim(), lastActive: "new", archived: false, status: "active", feedsInto: "" });
+    setName(""); setOpen(false);
+  };
+
+  if (!open) {
+    return <button onClick={() => setOpen(true)} style={{ marginTop: 10, width: "100%", background: "none", border: "1px dashed #2E3A3F", borderRadius: 6, color: "#7C878C", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, padding: "8px", cursor: "pointer" }}>+ Add thread</button>;
+  }
+
+  return (
+    <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New chat name" autoFocus onKeyDown={(e) => e.key === "Enter" && submit()}
+        style={{ flex: 1, background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "6px 9px", color: "#E7ECEE", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, outline: "none" }} />
+      <button onClick={submit} style={{ background: "#1B2226", border: "1px solid #2E3A3F", borderRadius: 6, color: "#E7ECEE", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, padding: "0 12px", cursor: "pointer" }}>Add</button>
+    </div>
+  );
+}
+
+function ProjectCard({ threads, onUpdateThread, onAddThread, onRemoveThread }) {
+  const [expanded, setExpanded] = useState(false);
+  const activeCount = threads.filter((t) => !t.archived).length;
+
+  return (
+    <CardShell>
+      <div onClick={() => setExpanded((e) => !e)} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", color: "#6FA8C4", marginBottom: 4 }}>PROJECT</div>
+          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, color: "#E7ECEE", lineHeight: 1.25 }}>Sys Eng Approach</div>
+          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C", marginTop: 2 }}>{activeCount} live thread{activeCount === 1 ? "" : "s"} · {threads.length} total</div>
+        </div>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#8FBFDA", padding: "4px 9px", border: "1px solid #2E3A3F", borderRadius: 999, background: "#1B2226", flexShrink: 0 }}>{expanded ? "COLLAPSE ▴" : "THREADS ▾"}</span>
+      </div>
+      <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C" }}>
+        Parallel chats that inform the two coding sessions. Note what each is feeding — that's your handoff record, same info that goes into the repo README / session-handoff files.
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 2 }}>
+          {threads.map((t) => <ThreadRow key={t.id} thread={t} onUpdate={onUpdateThread} onRemove={onRemoveThread} />)}
+          <AddThreadRow onAdd={onAddThread} />
+        </div>
+      )}
+    </CardShell>
+  );
+}
+
+function OpsBoard() {
+  const [sessions, setSessions] = useState(DEFAULT_SESSIONS);
+  const [threads, setThreads] = useState(DEFAULT_THREADS);
+  const [loaded, setLoaded] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await window.storage.get(STORAGE_KEY);
+        if (result && result.value) {
+          const parsed = JSON.parse(result.value);
+          if (Array.isArray(parsed.sessions) && parsed.sessions.length) setSessions(parsed.sessions);
+          if (Array.isArray(parsed.threads) && parsed.threads.length) setThreads(parsed.threads);
+        }
+      } catch (e) {} finally { setLoaded(true); }
+    })();
+  }, []);
+
+  const persist = useCallback(async (nextSessions, nextThreads) => {
+    try {
+      const result = await window.storage.set(STORAGE_KEY, JSON.stringify({ sessions: nextSessions, threads: nextThreads }));
+      setSaveError(!result);
+    } catch (e) { setSaveError(true); }
+  }, []);
+
+  const updateSession = useCallback((id, patch) => {
+    setSessions((prev) => { const next = prev.map((s) => (s.id === id ? { ...s, ...patch } : s)); persist(next, threads); return next; });
+  }, [persist, threads]);
+
+  const addSession = useCallback((session) => {
+    setSessions((prev) => { const next = [...prev, session]; persist(next, threads); return next; });
+  }, [persist, threads]);
+
+  const removeSession = useCallback((id) => {
+    setSessions((prev) => { const next = prev.filter((s) => s.id !== id); persist(next, threads); return next; });
+  }, [persist, threads]);
+
+  const updateThread = useCallback((id, patch) => {
+    setThreads((prev) => { const next = prev.map((t) => (t.id === id ? { ...t, ...patch } : t)); persist(sessions, next); return next; });
+  }, [persist, sessions]);
+
+  const addThread = useCallback((thread) => {
+    setThreads((prev) => { const next = [thread, ...prev]; persist(sessions, next); return next; });
+  }, [persist, sessions]);
+
+  const removeThread = useCallback((id) => {
+    setThreads((prev) => { const next = prev.filter((t) => t.id !== id); persist(sessions, next); return next; });
+  }, [persist, sessions]);
+
+  if (!loaded) {
+    return <div style={{ minHeight: "100vh", background: "#0D1113", display: "flex", alignItems: "center", justifyContent: "center", color: "#6B7679", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>loading board…</div>;
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0D1113", color: "#E7ECEE", padding: "20px 16px 40px" }}>
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        <header style={{ marginBottom: 20 }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.16em", color: "#6FA8C4", marginBottom: 6 }}>SETR SESSION BOARD</div>
+          <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 24, margin: 0, lineHeight: 1.15 }}>Coordination Console</h1>
+          <p style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#7C878C", marginTop: 6, maxWidth: 480 }}>
+            Repo status pulls live from GitHub's public commit history. Threads and notes are your own log, saved to this device's browser storage.
+          </p>
+          {saveError && <div style={{ marginTop: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#C1604A" }}>Save failed — changes may not persist. Try again.</div>}
+        </header>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+          <ProjectCard threads={threads} onUpdateThread={updateThread} onAddThread={addThread} onRemoveThread={removeThread} />
+          {sessions.map((s) => <SessionCard key={s.id} session={s} onUpdate={updateSession} onRemove={removeSession} />)}
+          <AddSessionCard onAdd={addSession} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<OpsBoard />);
+</script>
+</body>
+</html>
