@@ -42,7 +42,7 @@
   };
 </script>
 
-<script type="text/babel" data-presets="react">
+<script type="text/plain" id="app-source">
 const { useState, useEffect, useCallback, useRef } = React;
 
 const STORAGE_KEY = "setr-dashboard-v3";
@@ -432,7 +432,16 @@ function OpsBoard() {
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<OpsBoard />);
+root.render(React.createElement(OpsBoard));
+</script>
+<script>
+  var src = document.getElementById("app-source").textContent;
+  var compiled = Babel.transform(src, {
+    presets: [["react", { runtime: "classic" }]]
+  }).code;
+  var s = document.createElement("script");
+  s.textContent = compiled;
+  document.body.appendChild(s);
 </script>
 </body>
 </html>
