@@ -71,6 +71,20 @@ const STATUS_META = {
   synced: { label: "Synced", color: "#5FAE7B", glow: false },
 };
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.innerWidth <= 640
+  );
+  useEffect(() => {
+    function onResize() {
+      setIsMobile(window.innerWidth <= 640);
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return isMobile;
+}
+
 function timeAgo(input) {
   if (!input) return "—";
   const ts = typeof input === "number" ? input : Date.parse(input);
@@ -123,7 +137,7 @@ function StatusPicker({ value, onChange, compact = false }) {
     <div style={{ position: "relative", flexShrink: 0 }} ref={ref}>
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
-        style={{ display: "flex", alignItems: "center", gap: 6, background: "#1B2226", border: "1px solid #2E3A3F", borderRadius: 999, padding: compact ? "3px 8px 3px 7px" : "4px 10px 4px 8px", color: "#E7ECEE", fontFamily: "'IBM Plex Mono', monospace", fontSize: compact ? 10 : 11, letterSpacing: "0.04em", cursor: "pointer", whiteSpace: "nowrap" }}
+        style={{ display: "flex", alignItems: "center", gap: 6, background: "#1B2226", border: "1px solid #2E3A3F", borderRadius: 999, padding: compact ? "6px 11px 6px 9px" : "8px 13px 8px 11px", color: "#E7ECEE", fontFamily: "'IBM Plex Mono', monospace", fontSize: compact ? 11 : 12, letterSpacing: "0.04em", cursor: "pointer", whiteSpace: "nowrap", minHeight: 32 }}
       >
         <Led color={meta.color} glow={meta.glow} size={compact ? 6 : 8} />
         {meta.label.toUpperCase()}
@@ -145,7 +159,7 @@ function StatusPicker({ value, onChange, compact = false }) {
 }
 
 function CardShell({ children }) {
-  return <div style={{ background: "#131A1D", border: "1px solid #232C30", borderRadius: 10, padding: "16px 16px 14px", display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>{children}</div>;
+  return <div style={{ background: "#131A1D", border: "1px solid #232C30", borderRadius: 10, padding: "18px 16px 16px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>{children}</div>;
 }
 
 function useRepoStatus(slug) {
@@ -174,17 +188,21 @@ function RepoStatus({ slug }) {
   const { loading, error, data, refresh } = useRepoStatus(slug);
   if (!slug) return null;
   return (
-    <div style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <a href={`https://github.com/${slug}`} target="_blank" rel="noopener noreferrer" style={{ color: "#8FBFDA", textDecoration: "none", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>{slug} ↗</a>
-        <button onClick={(e) => { e.stopPropagation(); refresh(); }} title="Refresh" style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontSize: 12, padding: 2 }}>⟳</button>
+    <div style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "11px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <a href={`https://github.com/${slug}`} target="_blank" rel="noopener noreferrer" style={{ color: "#8FBFDA", textDecoration: "none", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{slug} ↗</a>
+        <button onClick={(e) => { e.stopPropagation(); refresh(); }} title="Refresh" style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontSize: 16, padding: "4px 6px", minWidth: 28, minHeight: 28, flexShrink: 0 }}>⟳</button>
       </div>
-      {loading && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468" }}>checking…</div>}
-      {!loading && error && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#C1604A" }}>{error} — open repo directly to check ↑</div>}
+      {loading && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>checking…</div>}
+      {!loading && error && (
+        <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#D68A78", lineHeight: 1.45 }}>
+          {error}. Tap the link above to check on GitHub directly.
+        </div>
+      )}
       {!loading && data && (
         <a href={data.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: "inherit" }}>
-          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#B7C1C4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={data.message}>{data.message}</div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468" }}>{data.sha} · {data.author} · {timeAgo(data.date)}</div>
+          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#B7C1C4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={data.message}>{data.message}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468", marginTop: 2 }}>{data.sha} · {data.author} · {timeAgo(data.date)}</div>
         </a>
       )}
     </div>
@@ -223,20 +241,20 @@ function SessionCard({ session, onUpdate, onRemove }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <StatusPicker value={session.status} onChange={(status) => onUpdate(session.id, { status, updatedAt: Date.now() })} />
-          {onRemove && <button onClick={() => onRemove(session.id)} title="Remove session" style={{ background: "none", border: "none", color: "#4A5458", cursor: "pointer", fontSize: 14, padding: 2 }}>×</button>}
+          {onRemove && <button onClick={() => onRemove(session.id)} title="Remove session" style={{ background: "none", border: "none", color: "#6B7679", cursor: "pointer", fontSize: 20, padding: "6px 8px", lineHeight: 1, minWidth: 32, minHeight: 32 }}>×</button>}
         </div>
       </div>
       <div>
         <Trace color={meta.color} />
         <div style={{ marginTop: 8 }}>
           <input value={repoSlug} onChange={(e) => handleRepoChange(e.target.value)} placeholder="owner/repo"
-            style={{ width: "100%", boxSizing: "border-box", background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "6px 9px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, outline: "none", marginBottom: 6 }}
+            style={{ width: "100%", boxSizing: "border-box", background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "10px 12px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, outline: "none", marginBottom: 8 }}
             onFocus={(e) => (e.target.style.borderColor = "#6FA8C4")} onBlur={(e) => (e.target.style.borderColor = "#232C30")} />
           <RepoStatus slug={repoSlug.trim()} />
         </div>
       </div>
       <textarea value={notes} onChange={(e) => handleNotesChange(e.target.value)} placeholder="Left off here / next step…" rows={2}
-        style={{ resize: "vertical", background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "8px 10px", color: "#DCE3E5", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, lineHeight: 1.4, outline: "none" }}
+        style={{ resize: "vertical", background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "10px 12px", color: "#DCE3E5", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 14, lineHeight: 1.5, outline: "none" }}
         onFocus={(e) => (e.target.style.borderColor = "#6FA8C4")} onBlur={(e) => (e.target.style.borderColor = "#232C30")} />
     </CardShell>
   );
@@ -296,11 +314,11 @@ function ThreadRow({ thread, onUpdate, onRemove }) {
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468" }}>{thread.lastActive}</span>
           <StatusPicker compact value={thread.status} onChange={(status) => onUpdate(thread.id, { status })} />
-          <button onClick={() => onRemove(thread.id)} title="Remove thread" style={{ background: "none", border: "none", color: "#4A5458", cursor: "pointer", fontSize: 13, padding: "0 2px" }}>×</button>
+          <button onClick={() => onRemove(thread.id)} title="Remove thread" style={{ background: "none", border: "none", color: "#6B7679", cursor: "pointer", fontSize: 18, padding: "6px 8px", lineHeight: 1, minWidth: 32, minHeight: 32 }}>×</button>
         </div>
       </div>
       <input value={feeds} onChange={(e) => handleFeedsChange(e.target.value)} placeholder="Feeding into… (e.g. Workbench S2)"
-        style={{ marginLeft: 13, background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "6px 9px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, outline: "none" }}
+        style={{ marginLeft: 4, background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "9px 11px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, outline: "none", width: "calc(100% - 4px)", boxSizing: "border-box" }}
         onFocus={(e) => (e.target.style.borderColor = "#6FA8C4")} onBlur={(e) => (e.target.style.borderColor = "#232C30")} />
     </div>
   );
@@ -357,6 +375,7 @@ function ProjectCard({ threads, onUpdateThread, onAddThread, onRemoveThread }) {
 }
 
 function OpsBoard() {
+  const isMobile = useIsMobile();
   const [sessions, setSessions] = useState(DEFAULT_SESSIONS);
   const [threads, setThreads] = useState(DEFAULT_THREADS);
   const [loaded, setLoaded] = useState(false);
@@ -421,7 +440,7 @@ function OpsBoard() {
           </p>
           {saveError && <div style={{ marginTop: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#C1604A" }}>Save failed — changes may not persist. Try again.</div>}
         </header>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(260px, 1fr))", gap: isMobile ? 14 : 12 }}>
           <ProjectCard threads={threads} onUpdateThread={updateThread} onAddThread={addThread} onRemoveThread={removeThread} />
           {sessions.map((s) => <SessionCard key={s.id} session={s} onUpdate={updateSession} onRemove={removeSession} />)}
           <AddSessionCard onAdd={addSession} />
