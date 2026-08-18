@@ -253,7 +253,11 @@ function SessionCard({ session, onUpdate, onRemove }) {
           <RepoStatus slug={repoSlug.trim()} />
         </div>
       </div>
-      <textarea value={notes} onChange={(e) => handleNotesChange(e.target.value)} placeholder="Left off here / next step…" rows={2}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>
+        <span>📄</span>
+        <span>Full status: <span style={{ color: "#8FBFDA" }}>HANDOFF.md</span> in repo root</span>
+      </div>
+      <textarea value={notes} onChange={(e) => handleNotesChange(e.target.value)} placeholder="Quick note (see HANDOFF.md for the real handoff)…" rows={2}
         style={{ resize: "vertical", background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "10px 12px", color: "#DCE3E5", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 14, lineHeight: 1.5, outline: "none" }}
         onFocus={(e) => (e.target.style.borderColor = "#6FA8C4")} onBlur={(e) => (e.target.style.borderColor = "#232C30")} />
     </CardShell>
@@ -317,7 +321,7 @@ function ThreadRow({ thread, onUpdate, onRemove }) {
           <button onClick={() => onRemove(thread.id)} title="Remove thread" style={{ background: "none", border: "none", color: "#6B7679", cursor: "pointer", fontSize: 18, padding: "6px 8px", lineHeight: 1, minWidth: 32, minHeight: 32 }}>×</button>
         </div>
       </div>
-      <input value={feeds} onChange={(e) => handleFeedsChange(e.target.value)} placeholder="Feeding into… (e.g. Workbench S2)"
+      <input value={feeds} onChange={(e) => handleFeedsChange(e.target.value)} placeholder="Feeding into… (see sys-eng-status.md)"
         style={{ marginLeft: 4, background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "9px 11px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, outline: "none", width: "calc(100% - 4px)", boxSizing: "border-box" }}
         onFocus={(e) => (e.target.style.borderColor = "#6FA8C4")} onBlur={(e) => (e.target.style.borderColor = "#232C30")} />
     </div>
@@ -362,7 +366,11 @@ function ProjectCard({ threads, onUpdateThread, onAddThread, onRemoveThread }) {
         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#8FBFDA", padding: "4px 9px", border: "1px solid #2E3A3F", borderRadius: 999, background: "#1B2226", flexShrink: 0 }}>{expanded ? "COLLAPSE ▴" : "THREADS ▾"}</span>
       </div>
       <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C" }}>
-        Parallel chats that inform the two coding sessions. Note what each is feeding — that's your handoff record, same info that goes into the repo README / session-handoff files.
+        Parallel chats that inform the two coding sessions.
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>
+        <span>📄</span>
+        <span>Full status: <span style={{ color: "#8FBFDA" }}>sys-eng-status.md</span> in Project knowledge</span>
       </div>
       {expanded && (
         <div style={{ marginTop: 2 }}>
