@@ -47,6 +47,8 @@ const { useState, useEffect, useCallback, useRef } = React;
 
 const STORAGE_KEY = "setr-dashboard-v3";
 
+const KNOWN_MCP_SERVER = "https://cross-platform-mcp-lab.onrender.com";
+
 const DEFAULT_SESSIONS = [
   { id: "udm-exchange", kind: "CODE", name: "udm-exchange", subtitle: "Claude Code session", repoSlug: "RonClemens/udm-exchange", status: "active", notes: "" },
   { id: "workbench-s2", kind: "CODE", name: "Workbench S2", subtitle: "Claude Code session", repoSlug: "RonClemens/MK--710-SSR-SysEng-Story", status: "active", notes: "" },
@@ -402,10 +404,10 @@ function AddSessionCard({ onAdd }) {
   const [kind, setKind] = useState("CODE");
   const [name, setName] = useState("");
   const [repoSlug, setRepoSlug] = useState("");
-  const [mcpUrl, setMcpUrl] = useState("");
+  const [mcpUrl, setMcpUrl] = useState(KNOWN_MCP_SERVER);
   const [topic, setTopic] = useState("");
 
-  const reset = () => { setName(""); setRepoSlug(""); setMcpUrl(""); setTopic(""); setKind("CODE"); setOpen(false); };
+  const reset = () => { setName(""); setRepoSlug(""); setMcpUrl(KNOWN_MCP_SERVER); setTopic(""); setKind("CODE"); setOpen(false); };
 
   const submit = () => {
     if (!name.trim()) return;
@@ -434,6 +436,7 @@ function AddSessionCard({ onAdd }) {
             style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "8px 10px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, outline: "none" }} />
           <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Topic to poll (e.g. agents/claude-pro)"
             style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "8px 10px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, outline: "none" }} />
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468" }}>Convention: one topic per session, <code>agents/&#123;name&#125;</code> — must match what that session sends to.</div>
         </>
       ) : (
         <input value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} placeholder="owner/repo (optional)"
