@@ -51,6 +51,7 @@ const DEFAULT_SESSIONS = [
   { id: "udm-exchange", kind: "CODE", name: "udm-exchange", subtitle: "Claude Code session", repoSlug: "RonClemens/udm-exchange", status: "active", notes: "" },
   { id: "workbench-s2", kind: "CODE", name: "Workbench S2", subtitle: "Claude Code session", repoSlug: "RonClemens/MK--710-SSR-SysEng-Story", status: "active", notes: "" },
   { id: "cdrl-subway-s1", kind: "CODE", name: "S1: CDRL Subway Path", subtitle: "Claude Code session", repoSlug: "RonClemens/MK--710-SSR-SysEng-Story", status: "idle", notes: "" },
+  { id: "cross-platform-mcp-lab", kind: "MCP", name: "Cross-Platform MCP Lab", subtitle: "Live MCP status feed", mcpUrl: "https://cross-platform-mcp-lab.onrender.com", topic: "dashboard/se-ops-board", status: "idle", notes: "" },
 ];
 
 const DEFAULT_THREADS = [
@@ -209,7 +210,86 @@ function RepoStatus({ slug }) {
   );
 }
 
+// MCP tool results are double-encoded: a JSON-RPC response wraps a
+// text content block, whose text is itself a JSON string. The endpoint
+// also always responds as a single SSE event (event:/data: lines), not a
+// plain JSON body, regardless of the request - both confirmed against a
+// real server before writing this, not assumed.
+async function callMcpTool(mcpUrl, toolName, args) {
+  const res = await fetch(`${mcpUrl}/mcp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: toolName, arguments: args } }),
+  });
+  if (!res.ok) throw new Error(`MCP server responded ${res.status}`);
+  const text = await res.text();
+  const dataLine = text.split("\n").find((l) => l.startsWith("data: "));
+  if (!dataLine) throw new Error("unexpected MCP response shape (no data: line)");
+  const envelope = JSON.parse(dataLine.slice(6));
+  if (envelope.error) throw new Error(envelope.error.message || "MCP error");
+  const block = envelope.result?.content?.[0];
+  if (!block || block.type !== "text") throw new Error("unexpected MCP result shape");
+  return JSON.parse(block.text);
+}
+
+function useMcpStatus(mcpUrl, topic) {
+  const [state, setState] = useState({ loading: true, error: null, data: null });
+
+  const fetchStatus = useCallback(async () => {
+    if (!mcpUrl) { setState({ loading: false, error: null, data: null }); return; }
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const result = await callMcpTool(mcpUrl, "get_messages", { topic, limit: 1 });
+      const msg = result.messages && result.messages[0];
+      if (!msg) { setState({ loading: false, error: null, data: null }); return; }
+      // refs.status comes back as the raw C# enum member name (e.g. "Blocked"),
+      // not pre-lowercased - STATUS_META's keys are lowercase.
+      const status = msg.refs && msg.refs.status ? msg.refs.status.toLowerCase() : null;
+      setState({ loading: false, error: null, data: { status, message: msg.message, sender: msg.sender, timestamp: msg.timestamp } });
+    } catch (e) {
+      setState({ loading: false, error: e.message || "fetch failed", data: null });
+    }
+  }, [mcpUrl, topic]);
+
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
+  return { ...state, refresh: fetchStatus };
+}
+
+function McpStatus({ mcpUrl, topic }) {
+  const { loading, error, data, refresh } = useMcpStatus(mcpUrl, topic);
+  if (!mcpUrl) return null;
+  const meta = data && data.status && STATUS_META[data.status];
+  return (
+    <div style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "11px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <span style={{ color: "#8FBFDA", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{topic}</span>
+        <button onClick={(e) => { e.stopPropagation(); refresh(); }} title="Refresh" style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontSize: 16, padding: "4px 6px", minWidth: 28, minHeight: 28, flexShrink: 0 }}>⟳</button>
+      </div>
+      {loading && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>checking…</div>}
+      {!loading && error && (
+        <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#D68A78", lineHeight: 1.45 }}>{error}</div>
+      )}
+      {!loading && !error && !data && (
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>no status messages yet</div>
+      )}
+      {!loading && data && (
+        <div>
+          {meta && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              <Led color={meta.color} glow={meta.glow} size={7} />
+              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: meta.color }}>{meta.label.toUpperCase()}</span>
+            </div>
+          )}
+          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#B7C1C4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={data.message}>{data.message}</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468", marginTop: 2 }}>{data.sender} · {timeAgo(data.timestamp)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SessionCard({ session, onUpdate, onRemove }) {
+  const isMcp = session.kind === "MCP";
   const [notes, setNotes] = useState(session.notes);
   const [repoSlug, setRepoSlug] = useState(session.repoSlug || "");
   const notesDebounce = useRef(null);
@@ -240,22 +320,32 @@ function SessionCard({ session, onUpdate, onRemove }) {
           <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C", marginTop: 2 }}>{session.subtitle}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <StatusPicker value={session.status} onChange={(status) => onUpdate(session.id, { status, updatedAt: Date.now() })} />
+          {/* MCP-kind cards have no manual override - status reflects whatever the
+              connected agent last reported via refs.status, not a human's dropdown pick. */}
+          {!isMcp && <StatusPicker value={session.status} onChange={(status) => onUpdate(session.id, { status, updatedAt: Date.now() })} />}
           {onRemove && <button onClick={() => onRemove(session.id)} title="Remove session" style={{ background: "none", border: "none", color: "#6B7679", cursor: "pointer", fontSize: 20, padding: "6px 8px", lineHeight: 1, minWidth: 32, minHeight: 32 }}>×</button>}
         </div>
       </div>
-      <div>
-        <Trace color={meta.color} />
-        <div style={{ marginTop: 8 }}>
-          <input value={repoSlug} onChange={(e) => handleRepoChange(e.target.value)} placeholder="owner/repo"
-            style={{ width: "100%", boxSizing: "border-box", background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "10px 12px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, outline: "none", marginBottom: 8 }}
-            onFocus={(e) => (e.target.style.borderColor = "#6FA8C4")} onBlur={(e) => (e.target.style.borderColor = "#232C30")} />
-          <RepoStatus slug={repoSlug.trim()} />
+      {isMcp ? (
+        <McpStatus mcpUrl={session.mcpUrl} topic={session.topic} />
+      ) : (
+        <div>
+          <Trace color={meta.color} />
+          <div style={{ marginTop: 8 }}>
+            <input value={repoSlug} onChange={(e) => handleRepoChange(e.target.value)} placeholder="owner/repo"
+              style={{ width: "100%", boxSizing: "border-box", background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "10px 12px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, outline: "none", marginBottom: 8 }}
+              onFocus={(e) => (e.target.style.borderColor = "#6FA8C4")} onBlur={(e) => (e.target.style.borderColor = "#232C30")} />
+            <RepoStatus slug={repoSlug.trim()} />
+          </div>
         </div>
-      </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>
         <span>📄</span>
-        <span>Full status: <span style={{ color: "#8FBFDA" }}>HANDOFF.md</span> in repo root</span>
+        {isMcp ? (
+          <span>Live via <span style={{ color: "#8FBFDA" }}>get_messages</span> - any agent sends status with <span style={{ color: "#8FBFDA" }}>refs.status</span></span>
+        ) : (
+          <span>Full status: <span style={{ color: "#8FBFDA" }}>HANDOFF.md</span> in repo root</span>
+        )}
       </div>
       <textarea value={notes} onChange={(e) => handleNotesChange(e.target.value)} placeholder="Quick note (see HANDOFF.md for the real handoff)…" rows={2}
         style={{ resize: "vertical", background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "10px 12px", color: "#DCE3E5", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 14, lineHeight: 1.5, outline: "none" }}
