@@ -164,8 +164,8 @@ function StatusPicker({ value, onChange, compact = false }) {
   );
 }
 
-function CardShell({ children }) {
-  return <div style={{ background: "#131A1D", border: "1px solid #232C30", borderRadius: 10, padding: "18px 16px 16px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>{children}</div>;
+function CardShell({ children, dim }) {
+  return <div style={{ background: "#131A1D", border: "1px solid #232C30", borderRadius: 10, padding: "18px 16px 16px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0, opacity: dim ? 0.5 : 1 }}>{children}</div>;
 }
 
 function useRepoStatus(slug) {
@@ -243,7 +243,7 @@ async function callMcpTool(mcpUrl, toolName, args) {
 const REQUEST_TYPES = new Set(["Handoff", "Review", "Next"]);
 const REPLY_TYPES = new Set(["Confirm", "Close"]);
 
-function useMcpStatus(mcpUrl, topic) {
+function useMcpStatus(mcpUrl, topic, enabled = true) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
 
   const fetchStatus = useCallback(async () => {
@@ -280,13 +280,23 @@ function useMcpStatus(mcpUrl, topic) {
     }
   }, [mcpUrl, topic]);
 
-  useEffect(() => { fetchStatus(); }, [fetchStatus]);
+  useEffect(() => {
+    if (!enabled) { setState((s) => ({ ...s, loading: false })); return; }
+    fetchStatus();
+  }, [fetchStatus, enabled]);
   return { ...state, refresh: fetchStatus };
 }
 
-function McpStatus({ mcpUrl, topic }) {
-  const { loading, error, data, refresh } = useMcpStatus(mcpUrl, topic);
+function McpStatus({ mcpUrl, topic, enabled = true }) {
+  const { loading, error, data, refresh } = useMcpStatus(mcpUrl, topic, enabled);
   if (!mcpUrl) return null;
+  if (!enabled) {
+    return (
+      <div style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "11px 12px" }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#5A6468" }}>{topic} · archived, polling paused</span>
+      </div>
+    );
+  }
   const meta = data && data.status && STATUS_META[data.status];
   return (
     <div style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "11px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -347,24 +357,32 @@ function SessionCard({ session, onUpdate, onRemove }) {
   };
 
   const meta = STATUS_META[session.status];
+  const archived = !!session.archived;
 
   return (
-    <CardShell>
+    <CardShell dim={archived}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", color: "#6FA8C4", marginBottom: 4 }}>{session.kind}</div>
-          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, color: "#E7ECEE", lineHeight: 1.25 }}>{session.name}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", color: "#6FA8C4" }}>{session.kind}</div>
+            {archived && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.08em", color: "#7C878C", border: "1px solid #2E3A3F", borderRadius: 999, padding: "1px 7px" }}>ARCHIVED</div>}
+          </div>
+          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, color: archived ? "#8A9297" : "#E7ECEE", lineHeight: 1.25 }}>{session.name}</div>
           <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C", marginTop: 2 }}>{session.subtitle}</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
           {/* MCP-kind cards have no manual override - status reflects whatever the
               connected agent last reported via refs.status, not a human's dropdown pick. */}
-          {!isMcp && <StatusPicker value={session.status} onChange={(status) => onUpdate(session.id, { status, updatedAt: Date.now() })} />}
+          {!isMcp && !archived && <StatusPicker value={session.status} onChange={(status) => onUpdate(session.id, { status, updatedAt: Date.now() })} />}
+          <button onClick={() => onUpdate(session.id, { archived: !archived })} title={archived ? "Restore session" : "Archive session"}
+            style={{ background: "none", border: "1px solid #232C30", borderRadius: 6, color: "#7C878C", cursor: "pointer", fontSize: 10, letterSpacing: "0.04em", padding: "6px 8px", lineHeight: 1, fontFamily: "'IBM Plex Mono', monospace" }}>
+            {archived ? "RESTORE" : "ARCHIVE"}
+          </button>
           {onRemove && <button onClick={() => onRemove(session.id)} title="Remove session" style={{ background: "none", border: "none", color: "#6B7679", cursor: "pointer", fontSize: 20, padding: "6px 8px", lineHeight: 1, minWidth: 32, minHeight: 32 }}>×</button>}
         </div>
       </div>
       {isMcp ? (
-        <McpStatus mcpUrl={session.mcpUrl} topic={session.topic} />
+        <McpStatus mcpUrl={session.mcpUrl} topic={session.topic} enabled={!archived} />
       ) : (
         <div>
           <Trace color={meta.color} />
@@ -606,10 +624,13 @@ function OpsBoard() {
             Repo status pulls live from GitHub's public commit history. Threads and notes are your own log, saved to this device's browser storage.
           </p>
           {saveError && <div style={{ marginTop: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#C1604A" }}>Save failed — changes may not persist. Try again.</div>}
+          <div style={{ marginTop: 8, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>
+            {sessions.filter((s) => !s.archived).length} active session{sessions.filter((s) => !s.archived).length === 1 ? "" : "s"} · {sessions.filter((s) => s.archived).length} archived · {sessions.length} total
+          </div>
         </header>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(260px, 1fr))", gap: isMobile ? 14 : 12 }}>
           <ProjectCard threads={threads} onUpdateThread={updateThread} onAddThread={addThread} onRemoveThread={removeThread} />
-          {sessions.map((s) => <SessionCard key={s.id} session={s} onUpdate={updateSession} onRemove={removeSession} />)}
+          {[...sessions].sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0)).map((s) => <SessionCard key={s.id} session={s} onUpdate={updateSession} onRemove={removeSession} />)}
           <AddSessionCard onAdd={addSession} />
         </div>
       </div>
