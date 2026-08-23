@@ -287,8 +287,23 @@ function useMcpStatus(mcpUrl, topic, enabled = true) {
   return { ...state, refresh: fetchStatus };
 }
 
+// Ron pinging a session is just a send_message call se-ops-board makes itself
+// (CORS already allows it) - a Handoff so it shows AWAITING REPLY until the
+// session posts anything new on this topic, which naturally supersedes it as
+// the latest message. No reply-matching needed: any fresh status clears it.
+async function sendPing(mcpUrl, topic) {
+  return callMcpTool(mcpUrl, "send_message", {
+    sender: "ron",
+    topic,
+    type: "Handoff",
+    message: "Ron is here — please check in when you can.",
+    correlationId: `ping-${Date.now()}`,
+  });
+}
+
 function McpStatus({ mcpUrl, topic, enabled = true }) {
   const { loading, error, data, refresh } = useMcpStatus(mcpUrl, topic, enabled);
+  const [pingState, setPingState] = useState("idle"); // idle | sending | sent | error
   if (!mcpUrl) return null;
   if (!enabled) {
     return (
@@ -297,12 +312,31 @@ function McpStatus({ mcpUrl, topic, enabled = true }) {
       </div>
     );
   }
+  const handlePing = async (e) => {
+    e.stopPropagation();
+    if (pingState === "sending") return;
+    setPingState("sending");
+    try {
+      await sendPing(mcpUrl, topic);
+      setPingState("sent");
+      refresh();
+    } catch (err) {
+      setPingState("error");
+    } finally {
+      setTimeout(() => setPingState("idle"), 3000);
+    }
+  };
+  const pingLabel = { idle: "📣 Ping", sending: "…", sent: "✓ Sent", error: "✕ Failed" }[pingState];
   const meta = data && data.status && STATUS_META[data.status];
   return (
     <div style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "11px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <span style={{ color: "#8FBFDA", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{topic}</span>
-        <button onClick={(e) => { e.stopPropagation(); refresh(); }} title="Refresh" style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontSize: 16, padding: "4px 6px", minWidth: 28, minHeight: 28, flexShrink: 0 }}>⟳</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+          <button onClick={handlePing} disabled={pingState === "sending"} title="Post a message asking this session to check in"
+            style={{ background: "none", border: "1px solid #2E3A3F", borderRadius: 5, color: pingState === "error" ? "#D68A78" : pingState === "sent" ? "#5FAE7B" : "#8FBFDA", cursor: pingState === "sending" ? "default" : "pointer", fontSize: 10, letterSpacing: "0.02em", padding: "4px 7px", fontFamily: "'IBM Plex Mono', monospace" }}>{pingLabel}</button>
+          <button onClick={(e) => { e.stopPropagation(); refresh(); }} title="Refresh" style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontSize: 16, padding: "4px 6px", minWidth: 28, minHeight: 28, flexShrink: 0 }}>⟳</button>
+        </div>
       </div>
       {loading && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>checking…</div>}
       {!loading && error && (
