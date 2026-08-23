@@ -287,23 +287,29 @@ function useMcpStatus(mcpUrl, topic, enabled = true) {
   return { ...state, refresh: fetchStatus };
 }
 
-// Ron pinging a session is just a send_message call se-ops-board makes itself
-// (CORS already allows it) - a Handoff so it shows AWAITING REPLY until the
-// session posts anything new on this topic, which naturally supersedes it as
-// the latest message. No reply-matching needed: any fresh status clears it.
-async function sendPing(mcpUrl, topic) {
+// Ron posting to a session is just a send_message call se-ops-board makes
+// itself (CORS already allows it) - a Handoff so it shows AWAITING REPLY
+// until the session posts anything new on this topic, which naturally
+// supersedes it as the latest message. No reply-matching needed: any fresh
+// status clears it. This lands on the topic instantly either way - it's
+// only the *session noticing* that still needs a wake (see board-ping-routines.md);
+// this board has no way to trigger that itself.
+const DEFAULT_PING_MESSAGE = "Ron is here — please check in when you can.";
+async function sendToSession(mcpUrl, topic, message) {
   return callMcpTool(mcpUrl, "send_message", {
     sender: "ron",
     topic,
     type: "Handoff",
-    message: "Ron is here — please check in when you can.",
-    correlationId: `ping-${Date.now()}`,
+    message: message && message.trim() ? message.trim() : DEFAULT_PING_MESSAGE,
+    correlationId: `ron-${Date.now()}`,
   });
 }
 
 function McpStatus({ mcpUrl, topic, enabled = true }) {
   const { loading, error, data, refresh } = useMcpStatus(mcpUrl, topic, enabled);
-  const [pingState, setPingState] = useState("idle"); // idle | sending | sent | error
+  const [sendState, setSendState] = useState("idle"); // idle | sending | sent | error
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeText, setComposeText] = useState("");
   if (!mcpUrl) return null;
   if (!enabled) {
     return (
@@ -312,32 +318,44 @@ function McpStatus({ mcpUrl, topic, enabled = true }) {
       </div>
     );
   }
-  const handlePing = async (e) => {
-    e.stopPropagation();
-    if (pingState === "sending") return;
-    setPingState("sending");
+  const send = async (message) => {
+    if (sendState === "sending") return;
+    setSendState("sending");
     try {
-      await sendPing(mcpUrl, topic);
-      setPingState("sent");
+      await sendToSession(mcpUrl, topic, message);
+      setSendState("sent");
+      setComposeOpen(false);
+      setComposeText("");
       refresh();
     } catch (err) {
-      setPingState("error");
+      setSendState("error");
     } finally {
-      setTimeout(() => setPingState("idle"), 3000);
+      setTimeout(() => setSendState("idle"), 3000);
     }
   };
-  const pingLabel = { idle: "📣 Ping", sending: "…", sent: "✓ Sent", error: "✕ Failed" }[pingState];
+  const sendLabel = { idle: "📣 Ping", sending: "…", sent: "✓ Sent", error: "✕ Failed" }[sendState];
   const meta = data && data.status && STATUS_META[data.status];
   return (
     <div style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "11px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
         <span style={{ color: "#8FBFDA", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{topic}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-          <button onClick={handlePing} disabled={pingState === "sending"} title="Post a message asking this session to check in"
-            style={{ background: "none", border: "1px solid #2E3A3F", borderRadius: 5, color: pingState === "error" ? "#D68A78" : pingState === "sent" ? "#5FAE7B" : "#8FBFDA", cursor: pingState === "sending" ? "default" : "pointer", fontSize: 10, letterSpacing: "0.02em", padding: "4px 7px", fontFamily: "'IBM Plex Mono', monospace" }}>{pingLabel}</button>
+          <button onClick={(e) => { e.stopPropagation(); send(); }} disabled={sendState === "sending"} title="Post the default check-in message"
+            style={{ background: "none", border: "1px solid #2E3A3F", borderRadius: 5, color: sendState === "error" ? "#D68A78" : sendState === "sent" ? "#5FAE7B" : "#8FBFDA", cursor: sendState === "sending" ? "default" : "pointer", fontSize: 10, letterSpacing: "0.02em", padding: "4px 7px", fontFamily: "'IBM Plex Mono', monospace" }}>{sendLabel}</button>
+          <button onClick={(e) => { e.stopPropagation(); setComposeOpen((o) => !o); }} title="Write a custom message to this session"
+            style={{ background: composeOpen ? "#1F2A2E" : "none", border: "1px solid #2E3A3F", borderRadius: 5, color: "#8FBFDA", cursor: "pointer", fontSize: 12, padding: "4px 7px", fontFamily: "'IBM Plex Mono', monospace" }}>✎</button>
           <button onClick={(e) => { e.stopPropagation(); refresh(); }} title="Refresh" style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontSize: 16, padding: "4px 6px", minWidth: 28, minHeight: 28, flexShrink: 0 }}>⟳</button>
         </div>
       </div>
+      {composeOpen && (
+        <div style={{ display: "flex", gap: 6 }}>
+          <input value={composeText} onChange={(e) => setComposeText(e.target.value)} placeholder="Message to this session…" autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") send(composeText); }}
+            style={{ flex: 1, background: "#131A1D", border: "1px solid #2E3A3F", borderRadius: 5, padding: "6px 9px", color: "#E7ECEE", fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, outline: "none" }} />
+          <button onClick={(e) => { e.stopPropagation(); send(composeText); }} disabled={sendState === "sending" || !composeText.trim()}
+            style={{ background: "#1B2226", border: "1px solid #2E3A3F", borderRadius: 5, color: "#E7ECEE", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, padding: "0 10px", cursor: "pointer" }}>Send</button>
+        </div>
+      )}
       {loading && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>checking…</div>}
       {!loading && error && (
         <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#D68A78", lineHeight: 1.45 }}>{error}</div>
@@ -366,6 +384,80 @@ function McpStatus({ mcpUrl, topic, enabled = true }) {
         </div>
       )}
     </div>
+  );
+}
+
+// Cross-topic activity log for diagnosing traffic between sessions - distinct
+// from each card's own McpStatus, which only shows its own topic's latest
+// message. get_messages with no topic filter walks every topic on the
+// server and returns newest-first (MessageStore.GetAsync, OrderByDescending
+// + Take), so this is just that same call with no topic argument.
+const TYPE_COLOR = { Handoff: "#E0954D", Confirm: "#5FAE7B", Review: "#8FBFDA", Close: "#5FAE7B", Supersede: "#C1604A", Status: "#8FBFDA", Next: "#E0954D", Info: "#7C878C" };
+
+function useMessageLog(mcpUrl, limit) {
+  const [state, setState] = useState({ loading: true, error: null, messages: [] });
+  const fetchLog = useCallback(async () => {
+    if (!mcpUrl) { setState({ loading: false, error: null, messages: [] }); return; }
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const result = await callMcpTool(mcpUrl, "get_messages", { limit });
+      setState({ loading: false, error: null, messages: result.messages || [] });
+    } catch (e) {
+      setState({ loading: false, error: e.message || "fetch failed", messages: [] });
+    }
+  }, [mcpUrl, limit]);
+  useEffect(() => { fetchLog(); }, [fetchLog]);
+  return { ...state, refresh: fetchLog };
+}
+
+function MessageLogRow({ msg }) {
+  const typeColor = TYPE_COLOR[msg.type] || "#7C878C";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, padding: "8px 0", borderTop: "1px solid #1E2629" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: typeColor, border: `1px solid ${typeColor}55`, borderRadius: 999, padding: "1px 7px" }}>{msg.type.toUpperCase()}</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#DCE3E5" }}>{msg.sender}</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>→</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#8FBFDA" }}>{msg.topic}</span>
+        {msg.refs && msg.refs.status && (
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: STATUS_META[msg.refs.status.toLowerCase()]?.color || "#7C878C" }}>{msg.refs.status.toUpperCase()}</span>
+        )}
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468", marginLeft: "auto" }}>{timeAgo(msg.timestamp)}</span>
+      </div>
+      <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12.5, color: "#B7C1C4", lineHeight: 1.4 }}>{msg.message}</div>
+      {msg.correlationId && (
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#454E52" }}>correlationId: {msg.correlationId}</div>
+      )}
+    </div>
+  );
+}
+
+function MessageLog({ mcpUrl }) {
+  const [expanded, setExpanded] = useState(false);
+  const limit = 50;
+  const { loading, error, messages, refresh } = useMessageLog(mcpUrl, limit);
+  return (
+    <CardShell>
+      <div onClick={() => setExpanded((e) => !e)} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", color: "#6FA8C4", marginBottom: 4 }}>DIAGNOSTICS</div>
+          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, color: "#E7ECEE", lineHeight: 1.25 }}>Message Log</div>
+          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C", marginTop: 2 }}>Every send_message across every topic, newest first.</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <button onClick={(e) => { e.stopPropagation(); refresh(); }} title="Refresh" style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontSize: 16, padding: "4px 6px", minWidth: 28, minHeight: 28 }}>⟳</button>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#8FBFDA", padding: "4px 9px", border: "1px solid #2E3A3F", borderRadius: 999, background: "#1B2226" }}>{expanded ? "COLLAPSE ▴" : "LOG ▾"}</span>
+        </div>
+      </div>
+      {expanded && (
+        <div style={{ maxHeight: 420, overflowY: "auto" }}>
+          {loading && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468", padding: "8px 0" }}>loading…</div>}
+          {!loading && error && <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#D68A78", padding: "8px 0" }}>{error}</div>}
+          {!loading && !error && messages.length === 0 && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468", padding: "8px 0" }}>no messages yet</div>}
+          {!loading && !error && messages.map((m) => <MessageLogRow key={m.id} msg={m} />)}
+        </div>
+      )}
+    </CardShell>
   );
 }
 
@@ -664,6 +756,7 @@ function OpsBoard() {
         </header>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(260px, 1fr))", gap: isMobile ? 14 : 12 }}>
           <ProjectCard threads={threads} onUpdateThread={updateThread} onAddThread={addThread} onRemoveThread={removeThread} />
+          <MessageLog mcpUrl={KNOWN_MCP_SERVER} />
           {[...sessions].sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0)).map((s) => <SessionCard key={s.id} session={s} onUpdate={updateSession} onRemove={removeSession} />)}
           <AddSessionCard onAdd={addSession} />
         </div>
