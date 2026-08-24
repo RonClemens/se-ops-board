@@ -112,6 +112,15 @@ function timeAgo(input) {
   return new Date(ts).toLocaleDateString();
 }
 
+function formatDateTime(input) {
+  if (!input) return "—";
+  const ts = typeof input === "number" ? input : Date.parse(input);
+  if (Number.isNaN(ts)) return "—";
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function genId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -467,6 +476,47 @@ function MessageLog({ mcpUrl }) {
   );
 }
 
+// Top-of-page glanceable summary: for each loaded MCP chat, is Ron blocked
+// on it right now - either direction (he owes it a reply, or it owes him
+// one)? Reuses the same awaitingReply signal each card's McpStatus already
+// computes (a request-type message with no reply yet), since "blocked" is
+// symmetric here: it doesn't matter who sent the unanswered message, only
+// that something is sitting there unresolved.
+function PendingRow({ session }) {
+  const { loading, error, data } = useMcpStatus(session.mcpUrl, session.topic, true);
+  const blocked = !!(data && data.awaitingReply);
+  const dotColor = loading ? "#454E52" : error ? "#D68A78" : blocked ? "#E0954D" : "#5FAE7B";
+  const label = loading ? "checking…" : error ? "error" : blocked ? "BLOCKED" : "clear";
+  const labelColor = blocked ? "#E0954D" : "#5A6468";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 0", borderTop: "1px solid #1E2629" }}>
+      <Led color={dotColor} glow={blocked} size={8} />
+      <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#DCE3E5", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.name}</span>
+      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: labelColor, letterSpacing: "0.04em", flexShrink: 0 }}>{label}</span>
+      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468", flexShrink: 0, minWidth: 118, textAlign: "right" }} title={data ? data.timestamp : ""}>
+        {data ? formatDateTime(data.timestamp) : "—"}
+      </span>
+    </div>
+  );
+}
+
+function PendingSummary({ sessions }) {
+  const mcpSessions = sessions.filter((s) => s.kind === "MCP" && !s.archived);
+  if (!mcpSessions.length) return null;
+  return (
+    <CardShell>
+      <div>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", color: "#6FA8C4", marginBottom: 4 }}>AT A GLANCE</div>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, color: "#E7ECEE", lineHeight: 1.25 }}>Who's Blocked on Whom</div>
+        <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C", marginTop: 2 }}>Amber = an unanswered message sitting on that topic, either direction. Last-sent is that topic's latest message.</div>
+      </div>
+      <div>
+        {mcpSessions.map((s) => <PendingRow key={s.id} session={s} />)}
+      </div>
+    </CardShell>
+  );
+}
+
 function SessionCard({ session, onUpdate, onRemove }) {
   const isMcp = session.kind === "MCP";
   const [notes, setNotes] = useState(session.notes);
@@ -760,6 +810,9 @@ function OpsBoard() {
             {sessions.filter((s) => !s.archived).length} active session{sessions.filter((s) => !s.archived).length === 1 ? "" : "s"} · {sessions.filter((s) => s.archived).length} archived · {sessions.length} total
           </div>
         </header>
+        <div style={{ marginBottom: isMobile ? 14 : 12 }}>
+          <PendingSummary sessions={sessions} />
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(260px, 1fr))", gap: isMobile ? 14 : 12 }}>
           <ProjectCard threads={threads} onUpdateThread={updateThread} onAddThread={addThread} onRemoveThread={removeThread} />
           <MessageLog mcpUrl={KNOWN_MCP_SERVER} />
