@@ -63,11 +63,11 @@ const DEFAULT_SESSIONS = [
   { id: "workbench-s2-mcp", kind: "MCP", name: "Workbench S2 (live)", subtitle: "Live MCP status feed", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/workbench-s2", status: "idle", notes: "" },
   { id: "cdrl-subway-s1-mcp", kind: "MCP", name: "S1: CDRL Subway Path (live)", subtitle: "Live MCP status feed", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/cdrl-subway-s1", status: "idle", notes: "" },
   { id: "cross-platform-mcp-lab", kind: "MCP", name: "Cross-Platform MCP Lab", subtitle: "Live MCP status feed", mcpUrl: "https://cross-platform-mcp-lab.onrender.com", topic: "dashboard/se-ops-board", status: "idle", notes: "" },
+  { id: "fmeca-dev-approach-mcp", kind: "MCP", name: "FMECA Dev Approach (live)", subtitle: "Live MCP status feed - manual relay", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/fmeca-dev-approach", status: "idle", notes: "" },
 ];
 
 const DEFAULT_THREADS = [
   { id: "s6-udm-cdrl-workflow", name: "S6: UDM - CDRL and Workflow Interfacing", lastActive: "2h", archived: false, status: "active", feedsInto: "" },
-  { id: "fmeca-dev-approach", name: "FMECA Dev Approach", lastActive: "3h", archived: false, status: "active", feedsInto: "" },
   { id: "archive-s5-udm-design", name: "ARCHIVE: S5 UDM Design", lastActive: "1d", archived: true, status: "idle", feedsInto: "" },
   { id: "archive-s4-se-udm-design", name: "ARCHIVE: S4 SE UDM Design", lastActive: "Aug 6", archived: true, status: "idle", feedsInto: "" },
   { id: "archive-udm-design-s3", name: "ARCHIVE: UDM Design S3", lastActive: "Aug 6", archived: true, status: "idle", feedsInto: "" },
