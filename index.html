@@ -476,26 +476,39 @@ function MessageLog({ mcpUrl }) {
   );
 }
 
-// Top-of-page glanceable summary: for each loaded MCP chat, is Ron blocked
-// on it right now - either direction (he owes it a reply, or it owes him
-// one)? Reuses the same awaitingReply signal each card's McpStatus already
-// computes (a request-type message with no reply yet), since "blocked" is
-// symmetric here: it doesn't matter who sent the unanswered message, only
-// that something is sitting there unresolved.
+// Top-of-page glanceable summary: for each loaded MCP chat, what's Ron's
+// exact next action? Three real states, not just blocked/clear - and all
+// three are plain facts already in the data (who sent the latest unanswered
+// message), not an AI-inferred guess:
+//   - clear: latest message isn't an unanswered request. Nothing to do.
+//   - YOUR MOVE: the chat's latest message is an unanswered request FROM
+//     the chat (sender isn't "ron") - it's waiting on Ron specifically.
+//   - waiting on them: Ron sent the last (still-unanswered) message - the
+//     ball is in the chat's court, not Ron's.
+// The message text itself is shown too, so "next action" means reading the
+// real content, not a paraphrase this page invents.
 function PendingRow({ session }) {
   const { loading, error, data } = useMcpStatus(session.mcpUrl, session.topic, true);
   const blocked = !!(data && data.awaitingReply);
-  const dotColor = loading ? "#454E52" : error ? "#D68A78" : blocked ? "#E0954D" : "#5FAE7B";
-  const label = loading ? "checking…" : error ? "error" : blocked ? "BLOCKED" : "clear";
-  const labelColor = blocked ? "#E0954D" : "#5A6468";
+  const yourMove = blocked && data && data.sender !== "ron";
+  const dotColor = loading ? "#454E52" : error ? "#D68A78" : yourMove ? "#C1604A" : blocked ? "#E0954D" : "#5FAE7B";
+  const label = loading ? "checking…" : error ? "error" : yourMove ? "YOUR MOVE" : blocked ? "waiting on them" : "clear";
+  const labelColor = yourMove ? "#C1604A" : blocked ? "#E0954D" : "#5A6468";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 0", borderTop: "1px solid #1E2629" }}>
-      <Led color={dotColor} glow={blocked} size={8} />
-      <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#DCE3E5", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.name}</span>
-      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: labelColor, letterSpacing: "0.04em", flexShrink: 0 }}>{label}</span>
-      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468", flexShrink: 0, minWidth: 118, textAlign: "right" }} title={data ? data.timestamp : ""}>
-        {data ? formatDateTime(data.timestamp) : "—"}
-      </span>
+    <div style={{ padding: "8px 0", borderTop: "1px solid #1E2629" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        <Led color={dotColor} glow={yourMove || blocked} size={8} />
+        <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#DCE3E5", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.name}</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: labelColor, letterSpacing: "0.04em", flexShrink: 0 }}>{label}</span>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468", flexShrink: 0, minWidth: 118, textAlign: "right" }} title={data ? data.timestamp : ""}>
+          {data ? formatDateTime(data.timestamp) : "—"}
+        </span>
+      </div>
+      {data && (
+        <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#8B959A", marginTop: 3, paddingLeft: 17, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={data.message}>
+          <span style={{ color: "#5A6468" }}>{data.sender}:</span> {data.message}
+        </div>
+      )}
     </div>
   );
 }
@@ -507,8 +520,8 @@ function PendingSummary({ sessions }) {
     <CardShell>
       <div>
         <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", color: "#6FA8C4", marginBottom: 4 }}>AT A GLANCE</div>
-        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, color: "#E7ECEE", lineHeight: 1.25 }}>Who's Blocked on Whom</div>
-        <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C", marginTop: 2 }}>Amber = an unanswered message sitting on that topic, either direction. Last-sent is that topic's latest message.</div>
+        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, color: "#E7ECEE", lineHeight: 1.25 }}>Your Next Action</div>
+        <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C", marginTop: 2 }}>Red = it's waiting on you. Amber = you're waiting on it. Green = clear. Message shown is that topic's actual latest, not a summary.</div>
       </div>
       <div>
         {mcpSessions.map((s) => <PendingRow key={s.id} session={s} />)}
