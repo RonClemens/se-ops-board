@@ -179,8 +179,24 @@ function StatusPicker({ value, onChange, compact = false }) {
   );
 }
 
-function CardShell({ children, dim }) {
-  return <div style={{ background: "#131A1D", border: "1px solid #232C30", borderRadius: 10, padding: "18px 16px 16px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0, opacity: dim ? 0.5 : 1 }}>{children}</div>;
+function CardShell({ children, dim, id }) {
+  return <div id={id} style={{ background: "#131A1D", border: "1px solid #232C30", borderRadius: 10, padding: "18px 16px 16px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0, opacity: dim ? 0.5 : 1 }}>{children}</div>;
+}
+
+// Jumps to a session's card and gives it a brief highlight flash so it's
+// obvious which one you landed on - direct DOM manipulation for a purely
+// transient effect, not something worth threading through React state.
+function scrollToSession(id) {
+  const el = document.getElementById(`session-${id}`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.style.transition = "box-shadow 0.3s ease, border-color 0.3s ease";
+  el.style.boxShadow = "0 0 0 2px #8FBFDA";
+  el.style.borderColor = "#8FBFDA";
+  setTimeout(() => {
+    el.style.boxShadow = "none";
+    el.style.borderColor = "#232C30";
+  }, 1400);
 }
 
 function useRepoStatus(slug) {
@@ -495,7 +511,7 @@ function PendingRow({ session }) {
   const label = loading ? "checking…" : error ? "error" : yourMove ? "YOUR MOVE" : blocked ? "waiting on them" : "clear";
   const labelColor = yourMove ? "#C1604A" : blocked ? "#E0954D" : "#5A6468";
   return (
-    <div style={{ padding: "8px 0", borderTop: "1px solid #1E2629" }}>
+    <div onClick={() => scrollToSession(session.id)} title="Jump to this chat's card" style={{ padding: "8px 0", borderTop: "1px solid #1E2629", cursor: "pointer" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
         <Led color={dotColor} glow={yourMove || blocked} size={8} />
         <span style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#DCE3E5", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.name}</span>
@@ -555,7 +571,7 @@ function SessionCard({ session, onUpdate, onRemove }) {
   const archived = !!session.archived;
 
   return (
-    <CardShell dim={archived}>
+    <CardShell dim={archived} id={`session-${session.id}`}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
