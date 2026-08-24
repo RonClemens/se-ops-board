@@ -336,11 +336,31 @@ async function sendToSession(mcpUrl, topic, message) {
   });
 }
 
+// Copy-to-clipboard for a message's exact text - mobile has no hover
+// tooltip, so a truncated line otherwise has no way to be read or grabbed
+// in full. Tap the message (or the AWAITING REPLY badge, same message) to
+// expand it and copy it verbatim, whitespace and all.
+function useCopyState() {
+  return useState("idle"); // idle | copied | error
+}
+async function copyText(text, setState) {
+  try {
+    await navigator.clipboard.writeText(text);
+    setState("copied");
+  } catch (err) {
+    setState("error");
+  } finally {
+    setTimeout(() => setState("idle"), 2000);
+  }
+}
+
 function McpStatus({ mcpUrl, topic, enabled = true }) {
   const { loading, error, data, refresh } = useMcpStatus(mcpUrl, topic, enabled);
   const [sendState, setSendState] = useState("idle"); // idle | sending | sent | error
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeText, setComposeText] = useState("");
+  const [msgExpanded, setMsgExpanded] = useState(false);
+  const [copyState, setCopyState] = useCopyState();
   if (!mcpUrl) return null;
   if (!enabled) {
     return (
@@ -397,9 +417,12 @@ function McpStatus({ mcpUrl, topic, enabled = true }) {
       {!loading && data && (
         <div>
           {/* Distinct axis from refs.status - an unanswered request, not a self-reported
-              status. Shown above the status line since it's the more urgent thing to notice. */}
+              status. Shown above the status line since it's the more urgent thing to notice.
+              Tapping it (same message as the awaited one) expands+copies the full text - the
+              badge and the message line below are two doors to the same content. */}
           {data.awaitingReply && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, background: "#2A1E14", border: "1px solid #4A3420", borderRadius: 5, padding: "5px 8px" }}>
+            <div onClick={() => setMsgExpanded((e) => !e)} title="Tap to see and copy the full message"
+              style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, background: "#2A1E14", border: "1px solid #4A3420", borderRadius: 5, padding: "5px 8px", cursor: "pointer" }}>
               <Led color="#E0954D" glow size={7} />
               <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#E0954D", letterSpacing: "0.03em" }}>AWAITING REPLY · {data.type.toUpperCase()}</span>
             </div>
@@ -410,7 +433,22 @@ function McpStatus({ mcpUrl, topic, enabled = true }) {
               <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: meta.color }}>{meta.label.toUpperCase()}</span>
             </div>
           )}
-          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#B7C1C4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={data.message}>{data.message}</div>
+          {!msgExpanded ? (
+            <div onClick={() => setMsgExpanded(true)} title="Tap to see and copy the full message"
+              style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#B7C1C4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{data.message}</div>
+          ) : (
+            <div style={{ background: "#131A1D", border: "1px solid #232C30", borderRadius: 5, padding: "8px 9px" }}>
+              <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#DCE3E5", lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.message}</div>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button onClick={(e) => { e.stopPropagation(); copyText(data.message, setCopyState); }}
+                  style={{ background: "none", border: "1px solid #2E3A3F", borderRadius: 5, color: copyState === "copied" ? "#5FAE7B" : copyState === "error" ? "#D68A78" : "#8FBFDA", cursor: "pointer", fontSize: 10, letterSpacing: "0.02em", padding: "4px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>
+                  {copyState === "copied" ? "✓ Copied" : copyState === "error" ? "✕ Copy failed" : "⧉ Copy"}
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); setMsgExpanded(false); }}
+                  style={{ background: "none", border: "1px solid #2E3A3F", borderRadius: 5, color: "#7C878C", cursor: "pointer", fontSize: 10, letterSpacing: "0.02em", padding: "4px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>Collapse</button>
+              </div>
+            </div>
+          )}
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468", marginTop: 2 }}>{data.sender} · {timeAgo(data.timestamp)}</div>
         </div>
       )}
