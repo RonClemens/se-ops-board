@@ -121,6 +121,34 @@ function formatDateTime(input) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// udm-exchange's UDM_WORKFLOW_PROTOCOL.md §3.2 relay batch header - what
+// this whole message schema was originally modeled on, and the format
+// design chat / Workbench / udm-exchange already expect a relayed message
+// to arrive in. §3's seven verbs map 1:1 onto our `type` field except
+// "Info" (this schema's own addition, not in their vocabulary) - kept
+// labeled INFO rather than forced into one of theirs.
+function formatEDT(input) {
+  const ts = typeof input === "number" ? input : Date.parse(input);
+  if (Number.isNaN(ts)) return "—";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date(ts));
+  const get = (t) => parts.find((p) => p.type === t).value;
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")} EDT`;
+}
+
+function formatRelayMessage(data, session) {
+  const verb = (data.type || "Info").toUpperCase();
+  const sourceIsRon = data.sender === "ron";
+  const source = sourceIsRon ? "Ron" : data.sender;
+  // Ron's own posts are addressed to the chat they were sent to (this
+  // card's topic); a chat's own posts default to Ron, since per §1 every
+  // cross-entity relay flows through him - both are just starting points,
+  // meant to be hand-edited before actually pasting somewhere.
+  const target = sourceIsRon ? session.name : "Ron";
+  return `Source: ${source}\nTarget: ${target}\nTimestamp: ${formatEDT(data.timestamp)}\n\n${verb} ${data.message}`;
+}
+
 function genId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -354,7 +382,7 @@ async function copyText(text, setState) {
   }
 }
 
-function McpStatus({ mcpUrl, topic, enabled = true }) {
+function McpStatus({ mcpUrl, topic, enabled = true, sessionName }) {
   const { loading, error, data, refresh } = useMcpStatus(mcpUrl, topic, enabled);
   const [sendState, setSendState] = useState("idle"); // idle | sending | sent | error
   const [composeOpen, setComposeOpen] = useState(false);
@@ -438,14 +466,17 @@ function McpStatus({ mcpUrl, topic, enabled = true }) {
               style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#B7C1C4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{data.message}</div>
           ) : (
             <div style={{ background: "#131A1D", border: "1px solid #232C30", borderRadius: 5, padding: "8px 9px" }}>
-              <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#DCE3E5", lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{data.message}</div>
+              <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468", marginBottom: 5, letterSpacing: "0.04em" }}>RELAY FORMAT · UDM_WORKFLOW_PROTOCOL.md §3.2</div>
+              <pre style={{ margin: 0, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#DCE3E5", lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{formatRelayMessage(data, { name: sessionName })}</pre>
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                <button onClick={(e) => { e.stopPropagation(); copyText(data.message, setCopyState); }}
+                <button onClick={(e) => { e.stopPropagation(); copyText(formatRelayMessage(data, { name: sessionName }), setCopyState); }}
                   style={{ background: "none", border: "1px solid #2E3A3F", borderRadius: 5, color: copyState === "copied" ? "#5FAE7B" : copyState === "error" ? "#D68A78" : "#8FBFDA", cursor: "pointer", fontSize: 10, letterSpacing: "0.02em", padding: "4px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>
-                  {copyState === "copied" ? "✓ Copied" : copyState === "error" ? "✕ Copy failed" : "⧉ Copy"}
+                  {copyState === "copied" ? "✓ Copied" : copyState === "error" ? "✕ Copy failed" : "⧉ Copy relay format"}
                 </button>
+                <button onClick={(e) => { e.stopPropagation(); copyText(data.message, setCopyState); }}
+                  style={{ background: "none", border: "1px solid #2E3A3F", borderRadius: 5, color: "#7C878C", cursor: "pointer", fontSize: 10, letterSpacing: "0.02em", padding: "4px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>Copy text only</button>
                 <button onClick={(e) => { e.stopPropagation(); setMsgExpanded(false); }}
-                  style={{ background: "none", border: "1px solid #2E3A3F", borderRadius: 5, color: "#7C878C", cursor: "pointer", fontSize: 10, letterSpacing: "0.02em", padding: "4px 8px", fontFamily: "'IBM Plex Mono', monospace" }}>Collapse</button>
+                  style={{ background: "none", border: "1px solid #2E3A3F", borderRadius: 5, color: "#7C878C", cursor: "pointer", fontSize: 10, letterSpacing: "0.02em", padding: "4px 8px", fontFamily: "'IBM Plex Mono', monospace", marginLeft: "auto" }}>Collapse</button>
               </div>
             </div>
           )}
@@ -631,7 +662,7 @@ function SessionCard({ session, onUpdate, onRemove }) {
         </div>
       </div>
       {isMcp ? (
-        <McpStatus mcpUrl={session.mcpUrl} topic={session.topic} enabled={!archived} />
+        <McpStatus mcpUrl={session.mcpUrl} topic={session.topic} enabled={!archived} sessionName={session.name} />
       ) : (
         <div>
           <Trace color={meta.color} />
