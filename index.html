@@ -59,11 +59,11 @@ const DEFAULT_SESSIONS = [
   { id: "udm-exchange", kind: "CODE", name: "udm-exchange", subtitle: "Claude Code session", repoSlug: "RonClemens/udm-exchange", status: "active", notes: "" },
   { id: "workbench-s2", kind: "CODE", name: "Workbench S2", subtitle: "Claude Code session", repoSlug: "RonClemens/MK--710-SSR-SysEng-Story", status: "active", notes: "" },
   { id: "cdrl-subway-s1", kind: "CODE", name: "S1: CDRL Subway Path", subtitle: "Claude Code session", repoSlug: "RonClemens/MK--710-SSR-SysEng-Story", status: "idle", notes: "" },
-  { id: "udm-exchange-mcp", kind: "MCP", name: "udm-exchange (live)", subtitle: "Live MCP status feed", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/udm-exchange", status: "idle", notes: "" },
-  { id: "workbench-s2-mcp", kind: "MCP", name: "Workbench S2 (live)", subtitle: "Live MCP status feed", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/workbench-s2", status: "idle", notes: "" },
-  { id: "cdrl-subway-s1-mcp", kind: "MCP", name: "S1: CDRL Subway Path (live)", subtitle: "Live MCP status feed", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/cdrl-subway-s1", status: "idle", notes: "" },
-  { id: "cross-platform-mcp-lab", kind: "MCP", name: "Cross-Platform MCP Lab", subtitle: "Live MCP status feed", mcpUrl: "https://cross-platform-mcp-lab.onrender.com", topic: "dashboard/se-ops-board", status: "idle", notes: "" },
-  { id: "fmeca-dev-approach-mcp", kind: "MCP", name: "FMECA Dev Approach (live)", subtitle: "Live MCP status feed - manual relay", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/fmeca-dev-approach", status: "idle", notes: "" },
+  { id: "udm-exchange-mcp", kind: "MCP", name: "udm-exchange (live)", subtitle: "Live MCP status feed", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/udm-exchange", status: "idle", notes: "", relayMode: "auto" },
+  { id: "workbench-s2-mcp", kind: "MCP", name: "Workbench S2 (live)", subtitle: "Live MCP status feed", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/workbench-s2", status: "idle", notes: "", relayMode: "auto" },
+  { id: "cdrl-subway-s1-mcp", kind: "MCP", name: "S1: CDRL Subway Path (live)", subtitle: "Live MCP status feed", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/cdrl-subway-s1", status: "idle", notes: "", relayMode: "auto" },
+  { id: "cross-platform-mcp-lab", kind: "MCP", name: "Cross-Platform MCP Lab", subtitle: "Live MCP status feed", mcpUrl: "https://cross-platform-mcp-lab.onrender.com", topic: "dashboard/se-ops-board", status: "idle", notes: "", relayMode: "manual" },
+  { id: "fmeca-dev-approach-mcp", kind: "MCP", name: "FMECA Dev Approach (live)", subtitle: "Live MCP status feed - manual relay", mcpUrl: KNOWN_MCP_SERVER, topic: "agents/fmeca-dev-approach", status: "idle", notes: "", relayMode: "manual" },
 ];
 
 const DEFAULT_THREADS = [
@@ -207,9 +207,18 @@ function StatusPicker({ value, onChange, compact = false }) {
   );
 }
 
-function CardShell({ children, dim, id }) {
-  return <div id={id} style={{ background: "#131A1D", border: "1px solid #232C30", borderRadius: 10, padding: "18px 16px 16px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0, opacity: dim ? 0.5 : 1 }}>{children}</div>;
+function CardShell({ children, dim, id, background, borderColor }) {
+  return <div id={id} style={{ background: background || "#131A1D", border: `1px solid ${borderColor || "#232C30"}`, borderRadius: 10, padding: "18px 16px 16px", display: "flex", flexDirection: "column", gap: 14, minWidth: 0, opacity: dim ? 0.5 : 1 }}>{children}</div>;
 }
+
+// Manual-relay MCP cards (no wake Routine behind them - a plain chat with no
+// API access, like a claude.ai Project chat or ChatGPT) look identical to
+// auto-wakeable ones otherwise, which is exactly what caused Ron to expect
+// FMECA Dev Approach to respond on its own. Distinct, unmissable tint here -
+// a hue nothing else on the board uses (status is green/amber/red, links are
+// blue) - rather than a small badge easy to miss.
+const MANUAL_RELAY_BG = "#1E1830";
+const MANUAL_RELAY_BORDER = "#5B4B8A";
 
 // Jumps to a session's card and gives it a brief highlight flash so it's
 // obvious which one you landed on - direct DOM manipulation for a purely
@@ -725,14 +734,16 @@ function SessionCard({ session, onUpdate, onRemove }) {
 
   const meta = STATUS_META[session.status];
   const archived = !!session.archived;
+  const manualRelay = isMcp && session.relayMode !== "auto";
 
   return (
-    <CardShell dim={archived} id={`session-${session.id}`}>
+    <CardShell dim={archived} id={`session-${session.id}`} background={manualRelay ? MANUAL_RELAY_BG : undefined} borderColor={manualRelay ? MANUAL_RELAY_BORDER : undefined}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
             <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", color: "#6FA8C4" }}>{session.kind}</div>
             {archived && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.08em", color: "#7C878C", border: "1px solid #2E3A3F", borderRadius: 999, padding: "1px 7px" }}>ARCHIVED</div>}
+            {manualRelay && !archived && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.08em", color: "#B7A6E8", border: `1px solid ${MANUAL_RELAY_BORDER}`, borderRadius: 999, padding: "1px 7px" }}>MANUAL RELAY — can't respond on its own</div>}
           </div>
           <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, color: archived ? "#8A9297" : "#E7ECEE", lineHeight: 1.25 }}>{session.name}</div>
           <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C", marginTop: 2 }}>{session.subtitle}</div>
@@ -794,14 +805,15 @@ function AddSessionCard({ onAdd }) {
   const [repoSlug, setRepoSlug] = useState("");
   const [mcpUrl, setMcpUrl] = useState(KNOWN_MCP_SERVER);
   const [topic, setTopic] = useState("");
+  const [relayMode, setRelayMode] = useState("manual");
 
-  const reset = () => { setName(""); setRepoSlug(""); setMcpUrl(KNOWN_MCP_SERVER); setTopic(""); setKind("CODE"); setOpen(false); };
+  const reset = () => { setName(""); setRepoSlug(""); setMcpUrl(KNOWN_MCP_SERVER); setTopic(""); setKind("CODE"); setRelayMode("manual"); setOpen(false); };
 
   const submit = () => {
     if (!name.trim()) return;
     if (kind === "MCP") {
       if (!mcpUrl.trim() || !topic.trim()) return;
-      onAdd({ id: genId("session"), kind: "MCP", name: name.trim(), subtitle: "Live MCP status feed", mcpUrl: mcpUrl.trim(), topic: topic.trim(), status: "idle", notes: "" });
+      onAdd({ id: genId("session"), kind: "MCP", name: name.trim(), subtitle: "Live MCP status feed", mcpUrl: mcpUrl.trim(), topic: topic.trim(), status: "idle", notes: "", relayMode });
     } else {
       onAdd({ id: genId("session"), kind: "CODE", name: name.trim(), subtitle: "Claude Code session", repoSlug: repoSlug.trim(), status: "active", notes: "" });
     }
@@ -825,6 +837,11 @@ function AddSessionCard({ onAdd }) {
           <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Topic to poll (e.g. agents/claude-pro)"
             style={{ background: "#0F1416", border: "1px solid #232C30", borderRadius: 6, padding: "8px 10px", color: "#B7C1C4", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, outline: "none" }} />
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468" }}>Convention: one topic per session, <code>agents/&#123;name&#125;</code> — must match what that session sends to.</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => setRelayMode("manual")} style={{ flex: 1, background: relayMode === "manual" ? MANUAL_RELAY_BG : "transparent", border: `1px solid ${relayMode === "manual" ? MANUAL_RELAY_BORDER : "#2E3A3F"}`, borderRadius: 6, color: relayMode === "manual" ? "#B7A6E8" : "#7C878C", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, padding: "7px", cursor: "pointer" }}>Manual relay</button>
+            <button onClick={() => setRelayMode("auto")} style={{ flex: 1, background: relayMode === "auto" ? "#1F2A2E" : "transparent", border: "1px solid #2E3A3F", borderRadius: 6, color: relayMode === "auto" ? "#E7ECEE" : "#7C878C", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, padding: "7px", cursor: "pointer" }}>Auto-wakeable</button>
+          </div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468" }}>Manual relay: a plain chat with no API access (claude.ai chat, ChatGPT) — Ping/compose land on the board but nothing wakes it; you copy/paste by hand. Auto-wakeable: a Claude Code session with a wake Routine already set up.</div>
         </>
       ) : (
         <input value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} placeholder="owner/repo (optional)"
