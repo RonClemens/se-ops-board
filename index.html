@@ -615,6 +615,93 @@ function PendingSummary({ sessions }) {
   );
 }
 
+// Bounded questions (message-protocol.md §3.2's "qa/{slug}" topic family) -
+// distinct from the per-session agents/{name} heartbeat channels above.
+// Grouped client-side from the same cross-topic get_messages call MessageLog
+// already uses (the server doesn't do prefix filtering), keeping only the
+// newest message per qa/ topic and deriving open/closed from whether any
+// message on that topic is a Close.
+function useQaTopics(mcpUrl) {
+  const [state, setState] = useState({ loading: true, error: null, topics: [] });
+  const fetchQa = useCallback(async () => {
+    if (!mcpUrl) { setState({ loading: false, error: null, topics: [] }); return; }
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const result = await callMcpTool(mcpUrl, "get_messages", { limit: 100 });
+      const byTopic = new Map();
+      for (const m of result.messages || []) {
+        if (!m.topic.startsWith("qa/")) continue;
+        if (!byTopic.has(m.topic)) byTopic.set(m.topic, []);
+        byTopic.get(m.topic).push(m);
+      }
+      const topics = Array.from(byTopic.entries()).map(([topic, list]) => {
+        list.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+        return { topic, latest: list[0], closed: list.some((m) => m.type === "Close"), count: list.length };
+      });
+      topics.sort((a, b) => Date.parse(b.latest.timestamp) - Date.parse(a.latest.timestamp));
+      setState({ loading: false, error: null, topics });
+    } catch (e) {
+      setState({ loading: false, error: e.message || "fetch failed", topics: [] });
+    }
+  }, [mcpUrl]);
+  useEffect(() => { fetchQa(); }, [fetchQa]);
+  return { ...state, refresh: fetchQa };
+}
+
+function QaRow({ item }) {
+  const { topic, latest, closed, count } = item;
+  return (
+    <div style={{ padding: "8px 0", borderTop: "1px solid #1E2629", opacity: closed ? 0.55 : 1 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        <Led color={closed ? "#5A6468" : "#8FBFDA"} glow={!closed} size={8} />
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: "#8FBFDA", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{topic}</span>
+        {closed && <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#5A6468", letterSpacing: "0.04em", flexShrink: 0 }}>CLOSED</span>}
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468", flexShrink: 0 }}>{formatDateTime(latest.timestamp)}</span>
+      </div>
+      <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#8B959A", marginTop: 3, paddingLeft: 17, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={latest.message}>
+        <span style={{ color: "#5A6468" }}>{latest.sender} · {latest.type}:</span> {latest.message}
+      </div>
+    </div>
+  );
+}
+
+function OpenQaList({ mcpUrl }) {
+  const { loading, error, topics, refresh } = useQaTopics(mcpUrl);
+  const [showClosed, setShowClosed] = useState(false);
+  if (!mcpUrl) return null;
+  const open = topics.filter((t) => !t.closed);
+  const closed = topics.filter((t) => t.closed);
+  return (
+    <CardShell>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", color: "#6FA8C4", marginBottom: 4 }}>AT A GLANCE</div>
+          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, color: "#E7ECEE", lineHeight: 1.25 }}>Open Q&amp;A</div>
+          <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#7C878C", marginTop: 2 }}>Bounded questions (message-protocol.md §3.2), separate from routine per-chat status. Closes when any reply posts CLOSE.</div>
+        </div>
+        <button onClick={(e) => { e.stopPropagation(); refresh(); }} title="Refresh" style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontSize: 16, padding: "4px 6px", minWidth: 28, minHeight: 28, flexShrink: 0 }}>⟳</button>
+      </div>
+      {loading && <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>checking…</div>}
+      {!loading && error && <div style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 12, color: "#D68A78" }}>{error}</div>}
+      {!loading && !error && open.length === 0 && closed.length === 0 && (
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>no open questions right now</div>
+      )}
+      {!loading && !error && open.length === 0 && closed.length > 0 && (
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>nothing open — {closed.length} closed</div>
+      )}
+      {!loading && !error && open.map((t) => <QaRow key={t.topic} item={t} />)}
+      {!loading && !error && closed.length > 0 && (
+        <div>
+          <button onClick={() => setShowClosed((s) => !s)} style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.04em", padding: "6px 0 0" }}>
+            {showClosed ? "▴ hide" : "▾ show"} {closed.length} closed
+          </button>
+          {showClosed && closed.map((t) => <QaRow key={t.topic} item={t} />)}
+        </div>
+      )}
+    </CardShell>
+  );
+}
+
 function SessionCard({ session, onUpdate, onRemove }) {
   const isMcp = session.kind === "MCP";
   const [notes, setNotes] = useState(session.notes);
@@ -908,8 +995,9 @@ function OpsBoard() {
             {sessions.filter((s) => !s.archived).length} active session{sessions.filter((s) => !s.archived).length === 1 ? "" : "s"} · {sessions.filter((s) => s.archived).length} archived · {sessions.length} total
           </div>
         </header>
-        <div style={{ marginBottom: isMobile ? 14 : 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 14 : 12, marginBottom: isMobile ? 14 : 12 }}>
           <PendingSummary sessions={sessions} />
+          <OpenQaList mcpUrl={KNOWN_MCP_SERVER} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(260px, 1fr))", gap: isMobile ? 14 : 12 }}>
           <ProjectCard threads={threads} onUpdateThread={updateThread} onAddThread={addThread} onRemoveThread={removeThread} />
