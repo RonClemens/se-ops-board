@@ -752,6 +752,13 @@ function SessionCard({ session, onUpdate, onRemove }) {
           {/* MCP-kind cards have no manual override - status reflects whatever the
               connected agent last reported via refs.status, not a human's dropdown pick. */}
           {!isMcp && !archived && <StatusPicker value={session.status} onChange={(status) => onUpdate(session.id, { status, updatedAt: Date.now() })} />}
+          {isMcp && !archived && (
+            <button onClick={() => onUpdate(session.id, { relayMode: manualRelay ? "auto" : "manual" })}
+              title={manualRelay ? "Mark as auto (has a wake mechanism - responds without you)" : "Mark as manual relay (no wake mechanism - you must copy/paste)"}
+              style={{ background: "none", border: `1px solid ${manualRelay ? MANUAL_RELAY_BORDER : "#232C30"}`, borderRadius: 6, color: manualRelay ? "#B7A6E8" : "#7C878C", cursor: "pointer", fontSize: 10, letterSpacing: "0.04em", padding: "6px 8px", lineHeight: 1, fontFamily: "'IBM Plex Mono', monospace" }}>
+              {manualRelay ? "MARK AUTO" : "MARK MANUAL"}
+            </button>
+          )}
           <button onClick={() => onUpdate(session.id, { archived: !archived })} title={archived ? "Restore session" : "Archive session"}
             style={{ background: "none", border: "1px solid #232C30", borderRadius: 6, color: "#7C878C", cursor: "pointer", fontSize: 10, letterSpacing: "0.04em", padding: "6px 8px", lineHeight: 1, fontFamily: "'IBM Plex Mono', monospace" }}>
             {archived ? "RESTORE" : "ARCHIVE"}
