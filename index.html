@@ -391,7 +391,7 @@ async function copyText(text, setState) {
   }
 }
 
-function McpStatus({ mcpUrl, topic, enabled = true, sessionName }) {
+function McpStatus({ mcpUrl, topic, enabled = true, sessionName, manualRelay = false }) {
   const { loading, error, data, refresh } = useMcpStatus(mcpUrl, topic, enabled);
   const [sendState, setSendState] = useState("idle"); // idle | sending | sent | error
   const [composeOpen, setComposeOpen] = useState(false);
@@ -414,7 +414,14 @@ function McpStatus({ mcpUrl, topic, enabled = true, sessionName }) {
       setSendState("sent");
       setComposeOpen(false);
       setComposeText("");
-      refresh();
+      await refresh();
+      // Manual relay has no wake mechanism - the whole point of sending is to get
+      // this to a human-pasteable form, so skip straight to the relay-format copy
+      // box instead of making Ron tap to expand it separately (see AskUserQuestion
+      // 2026-08-28: "webapp shows the ready-to-paste relay text immediately after
+      // you send to a manual-relay card"). Auto-relay cards deliver for real, so
+      // there's nothing to paste - leave those collapsed as before.
+      if (manualRelay) setMsgExpanded(true);
     } catch (err) {
       setSendState("error");
     } finally {
@@ -767,7 +774,7 @@ function SessionCard({ session, onUpdate, onRemove }) {
         </div>
       </div>
       {isMcp ? (
-        <McpStatus mcpUrl={session.mcpUrl} topic={session.topic} enabled={!archived} sessionName={session.name} />
+        <McpStatus mcpUrl={session.mcpUrl} topic={session.topic} enabled={!archived} sessionName={session.name} manualRelay={manualRelay} />
       ) : (
         <div>
           <Trace color={meta.color} />
