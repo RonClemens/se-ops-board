@@ -302,7 +302,16 @@ async function callMcpTool(mcpUrl, toolName, args) {
   if (envelope.error) throw new Error(envelope.error.message || "MCP error");
   const block = envelope.result?.content?.[0];
   if (!block || block.type !== "text") throw new Error("unexpected MCP result shape");
-  return JSON.parse(block.text);
+  const parsed = JSON.parse(block.text);
+  // A degraded condition (GitHub rate limit, etc.) is NOT a JSON-RPC protocol
+  // error - the tool call itself succeeds, and the failure is only visible in
+  // the *content*, as {error: "github_api_unavailable", message: "..."} (see
+  // GitHubApiUnavailableException's catch blocks in the server). Missing this
+  // meant every caller downstream read .messages off this object, got
+  // undefined, and treated a real outage as "nothing here" - the exact
+  // silent-failure bug HANDOFF.md's 2026-08-31 rate-limit incidents describe.
+  if (parsed && parsed.error) throw new Error(parsed.message || parsed.error);
+  return parsed;
 }
 
 // Types that expect a reply vs. types that constitute one. A Handoff/Review/Next
@@ -353,6 +362,55 @@ function useMcpStatus(mcpUrl, topic, enabled = true) {
     fetchStatus();
   }, [fetchStatus, enabled]);
   return { ...state, refresh: fetchStatus };
+}
+
+// GitHub API headroom for the shared bus - every send_message/get_messages/
+// save_shared_state/get_shared_state call spends from this same budget, and
+// running it out is what silently broke the board during the 2026-08-31
+// incidents (see HANDOFF.md). get_github_rate_limit reads GitHub's own
+// dedicated endpoint, which GitHub excludes from counting against that
+// budget, so polling this costs nothing.
+function useRateLimit(mcpUrl) {
+  const [state, setState] = useState({ loading: true, error: null, data: null });
+
+  const fetchRateLimit = useCallback(async () => {
+    if (!mcpUrl) { setState({ loading: false, error: null, data: null }); return; }
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const result = await callMcpTool(mcpUrl, "get_github_rate_limit", {});
+      setState({ loading: false, error: null, data: result });
+    } catch (e) {
+      setState({ loading: false, error: e.message || "fetch failed", data: null });
+    }
+  }, [mcpUrl]);
+
+  useEffect(() => { fetchRateLimit(); }, [fetchRateLimit]);
+  return { ...state, refresh: fetchRateLimit };
+}
+
+function RateLimitIndicator({ mcpUrl }) {
+  const { loading, error, data, refresh } = useRateLimit(mcpUrl);
+
+  let color = "#5A6468";
+  let label = "checking…";
+  if (!loading) {
+    if (error) {
+      color = "#D68A78";
+      label = "GitHub API headroom unknown";
+    } else if (data) {
+      const pct = data.limit ? data.remaining / data.limit : 1;
+      color = pct <= 0.1 ? "#C1604A" : pct <= 0.3 ? "#E0954D" : "#5FAE7B";
+      label = `GitHub API ${data.remaining}/${data.limit}`;
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>
+      <Led color={color} glow={false} size={7} />
+      <span style={{ color }} title={error || undefined}>{label}</span>
+      <button onClick={refresh} title="Refresh" style={{ background: "none", border: "none", color: "#5A6468", cursor: "pointer", fontSize: 13, padding: "2px 4px", minWidth: 20, minHeight: 20, lineHeight: 1 }}>⟳</button>
+    </div>
+  );
 }
 
 // Ron posting to a session is just a send_message call se-ops-board makes
@@ -1024,6 +1082,9 @@ function OpsBoard() {
           {saveError && <div style={{ marginTop: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#C1604A" }}>Save failed — changes may not persist. Try again.</div>}
           <div style={{ marginTop: 8, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5A6468" }}>
             {sessions.filter((s) => !s.archived).length} active session{sessions.filter((s) => !s.archived).length === 1 ? "" : "s"} · {sessions.filter((s) => s.archived).length} archived · {sessions.length} total
+          </div>
+          <div style={{ marginTop: 4 }}>
+            <RateLimitIndicator mcpUrl={KNOWN_MCP_SERVER} />
           </div>
         </header>
         <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 14 : 12, marginBottom: isMobile ? 14 : 12 }}>
