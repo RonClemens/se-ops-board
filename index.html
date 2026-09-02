@@ -54,6 +54,10 @@ const { useState, useEffect, useCallback, useRef } = React;
 const STORAGE_KEY = "setr-dashboard-v3";
 
 const KNOWN_MCP_SERVER = "https://cross-platform-mcp-lab.onrender.com";
+// Bump this string in the same commit as any other change to this file - the
+// only way to tell "am I looking at the latest deploy" for a static
+// single-file app with no build step. Shown in the footer.
+const BOARD_VERSION = "2026-09-02a";
 
 const DEFAULT_SESSIONS = [
   { id: "udm-exchange", kind: "CODE", name: "udm-exchange", subtitle: "Claude Code session", repoSlug: "RonClemens/udm-exchange", status: "active", notes: "" },
@@ -1096,6 +1100,9 @@ function OpsBoard() {
           <MessageLog mcpUrl={KNOWN_MCP_SERVER} />
           {[...sessions].sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0)).map((s) => <SessionCard key={s.id} session={s} onUpdate={updateSession} onRemove={removeSession} />)}
           <AddSessionCard onAdd={addSession} />
+        </div>
+        <div style={{ marginTop: 20, textAlign: "center", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#454E52" }}>
+          se-ops-board {BOARD_VERSION}
         </div>
       </div>
     </div>
