@@ -57,7 +57,7 @@ const KNOWN_MCP_SERVER = "https://cross-platform-mcp-lab.onrender.com";
 // Bump this string in the same commit as any other change to this file - the
 // only way to tell "am I looking at the latest deploy" for a static
 // single-file app with no build step. Shown in the footer.
-const BOARD_VERSION = "2026-09-02a";
+const BOARD_VERSION = "2026-09-02b";
 
 const DEFAULT_SESSIONS = [
   { id: "udm-exchange", kind: "CODE", name: "udm-exchange", subtitle: "Claude Code session", repoSlug: "RonClemens/udm-exchange", status: "active", notes: "" },
@@ -1078,7 +1078,10 @@ function OpsBoard() {
     <div style={{ minHeight: "100vh", background: "#0D1113", color: "#E7ECEE", padding: "20px 16px 40px" }}>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
         <header style={{ marginBottom: 20 }}>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.16em", color: "#6FA8C4", marginBottom: 6 }}>SETR SESSION BOARD</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.16em", color: "#6FA8C4" }}>SETR SESSION BOARD</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#454E52" }}>{BOARD_VERSION}</div>
+          </div>
           <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 24, margin: 0, lineHeight: 1.15 }}>Coordination Console</h1>
           <p style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 13, color: "#7C878C", marginTop: 6, maxWidth: 480 }}>
             Repo status pulls live from GitHub's public commit history. Threads and notes are your own log, saved to this device's browser storage.
@@ -1100,9 +1103,6 @@ function OpsBoard() {
           <MessageLog mcpUrl={KNOWN_MCP_SERVER} />
           {[...sessions].sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0)).map((s) => <SessionCard key={s.id} session={s} onUpdate={updateSession} onRemove={removeSession} />)}
           <AddSessionCard onAdd={addSession} />
-        </div>
-        <div style={{ marginTop: 20, textAlign: "center", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#454E52" }}>
-          se-ops-board {BOARD_VERSION}
         </div>
       </div>
     </div>
